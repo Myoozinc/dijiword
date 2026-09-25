@@ -1,0 +1,217 @@
+{
+  "dataset": "MaleCNS v1.0 & FlyWire Whole-CNS",
+  "version": "1.0",
+  "organisms": "Drosophila melanogaster",
+  "totalNeurons": 166700,
+  "totalSynapses": 124200000,
+  "citation": "Schlegel, Bates, et al. (Nature 2024); Dorkenwald et al. (Nature 2024); Janelia FlyEM / Google Research",
+  "endpoints": {
+    "neuprint": "https://neuprint.janelia.org/api",
+    "codex": "https://codex.flywire.ai",
+    "gcs_male_cns": "https://storage.googleapis.com/flyem-male-cns/v1.0/",
+    "gcs_banc": "https://storage.googleapis.com/lee-lab_brain-and-nerve-cord-fly-connectome/compiled_data/"
+  },
+  "neuropils": [
+    {
+      "id": "AL_R",
+      "name": "Antennal Lobe Right",
+      "category": "Sensory (Olfactory)",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "AL_L",
+      "name": "Antennal Lobe Left",
+      "category": "Sensory (Olfactory)",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "ME_R",
+      "name": "Medulla Right",
+      "category": "Visual",
+      "color": "#06b6d4"
+    },
+    {
+      "id": "ME_L",
+      "name": "Medulla Left",
+      "category": "Visual",
+      "color": "#06b6d4"
+    },
+    {
+      "id": "LO_R",
+      "name": "Lobula Right",
+      "category": "Visual",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "LO_L",
+      "name": "Lobula Left",
+      "category": "Visual",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "LOP_R",
+      "name": "Lobula Plate Right",
+      "category": "Motion Vision",
+      "color": "#6366f1"
+    },
+    {
+      "id": "LOP_L",
+      "name": "Lobula Plate Left",
+      "category": "Motion Vision",
+      "color": "#6366f1"
+    },
+    {
+      "id": "EB",
+      "name": "Ellipsoid Body",
+      "category": "Central Complex (Heading Compass)",
+      "color": "#10b981"
+    },
+    {
+      "id": "FB",
+      "name": "Fan-shaped Body",
+      "category": "Central Complex (Navigational Steering)",
+      "color": "#22c55e"
+    },
+    {
+      "id": "PB",
+      "name": "Protocerebral Bridge",
+      "category": "Central Complex (Ring Attractor)",
+      "color": "#84cc16"
+    },
+    {
+      "id": "NO",
+      "name": "Noduli",
+      "category": "Central Complex (Velocity Integration)",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "MB_CA_R",
+      "name": "Mushroom Body Calyx R",
+      "category": "Learning & Memory",
+      "color": "#ec4899"
+    },
+    {
+      "id": "MB_CA_L",
+      "name": "Mushroom Body Calyx L",
+      "category": "Learning & Memory",
+      "color": "#ec4899"
+    },
+    {
+      "id": "MB_LOBES_R",
+      "name": "Mushroom Body Lobes R (α/β/γ)",
+      "category": "Memory Recall / Dopamine",
+      "color": "#f43f5e"
+    },
+    {
+      "id": "MB_LOBES_L",
+      "name": "Mushroom Body Lobes L (α/β/γ)",
+      "category": "Memory Recall / Dopamine",
+      "color": "#f43f5e"
+    },
+    {
+      "id": "SEZ",
+      "name": "Subesophageal Zone",
+      "category": "Gustatory & Motor Control",
+      "color": "#a855f7"
+    },
+    {
+      "id": "VNC_T1",
+      "name": "Prothoracic Neuropil (T1)",
+      "category": "Front Leg Motor Control",
+      "color": "#0284c7"
+    },
+    {
+      "id": "VNC_T2",
+      "name": "Mesothoracic Neuropil (T2)",
+      "category": "Middle Leg & Wing Motor Control",
+      "color": "#2563eb"
+    },
+    {
+      "id": "VNC_T3",
+      "name": "Metathoracic Neuropil (T3)",
+      "category": "Hind Leg Motor Control",
+      "color": "#1d4ed8"
+    }
+  ],
+  "circuits": [
+    {
+      "id": "optic_l1_to_tm1",
+      "name": "Visual Motion Detection (L1 -> Mi1 -> Tm1)",
+      "source": "Photoreceptors",
+      "target": "Lobula Plate Tangential Cells (LPTC)",
+      "transmitters": [
+        "Acetylcholine",
+        "Glutamate"
+      ],
+      "function": "Detects optical flow for flight and walking orientation"
+    },
+    {
+      "id": "central_complex_epg_compass",
+      "name": "Head Direction Ring Attractor (E-PG -> P-EN -> P-FL3)",
+      "source": "Ellipsoid Body",
+      "target": "Protocerebral Bridge & Fan-shaped Body",
+      "transmitters": [
+        "Acetylcholine",
+        "GABA"
+      ],
+      "function": "Internal 360° heading compass and steering commands"
+    },
+    {
+      "id": "mushroom_body_dopamine_reward",
+      "name": "Reinforcement Learning & Memory (PAM/PPL1 -> Kenyon Cells -> MBON)",
+      "source": "Dopaminergic Neurons (PAM cluster)",
+      "target": "Mushroom Body Output Neurons",
+      "transmitters": [
+        "Dopamine",
+        "Acetylcholine",
+        "GABA"
+      ],
+      "function": "Associative learning (sugar reward vs shock avoidance)"
+    },
+    {
+      "id": "descending_motor_dna01",
+      "name": "Walking Initiation & Steering (DNa01, DNa02, MDN)",
+      "source": "Brain (GPL / LAL)",
+      "target": "Ventral Nerve Cord (T1, T2, T3 Leg Central Pattern Generators)",
+      "transmitters": [
+        "Acetylcholine",
+        "Glutamate"
+      ],
+      "function": "Directs tripodal walking gait and forward/backward locomotion"
+    }
+  ],
+  "flygym": {
+    "framework": "EPFL NeuroMechFly v2",
+    "model": "Drosophila melanogaster (biophysically accurate micro-CT)",
+    "actuators": [
+      "L1_coxa",
+      "L1_femur",
+      "L1_tibia",
+      "L1_tarsus",
+      "R1_coxa",
+      "R1_femur",
+      "R1_tibia",
+      "R1_tarsus",
+      "L2_coxa",
+      "L2_femur",
+      "L2_tibia",
+      "L2_tarsus",
+      "R2_coxa",
+      "R2_femur",
+      "R2_tibia",
+      "R2_tarsus",
+      "L3_coxa",
+      "L3_femur",
+      "L3_tibia",
+      "L3_tarsus",
+      "R3_coxa",
+      "R3_femur",
+      "R3_tibia",
+      "R3_tarsus",
+      "L_wing_pitch",
+      "L_wing_roll",
+      "R_wing_pitch",
+      "R_wing_roll"
+    ]
+  }
+}

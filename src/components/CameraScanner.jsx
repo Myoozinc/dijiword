@@ -22,7 +22,7 @@ import { AIVisionDetector } from '../services/aiVisionDetector';
 import { SpatialObjectManager } from '../services/spatialObjectManager';
 import { RoomReconstruction } from '../services/roomReconstruction';
 
-export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR }) {
+export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR, onOpenFlyConnectome }) {
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const engineRef = useRef(null);
@@ -390,6 +390,16 @@ export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR }
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-2">
+          {onOpenFlyConnectome && (
+            <button
+              onClick={onOpenFlyConnectome}
+              className="px-2.5 py-1.5 rounded-full text-[10px] font-bold bg-gradient-to-r from-emerald-500/25 to-teal-500/25 text-emerald-300 border border-emerald-400/40 hover:brightness-110 flex items-center space-x-1"
+              title="Simulador Conectoma Mosca"
+            >
+              <span>🪰 Mosca</span>
+            </button>
+          )}
+
           {onSwitchToRealAR && (
             <button
               onClick={onSwitchToRealAR}

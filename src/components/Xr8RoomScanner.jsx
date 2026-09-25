@@ -16,7 +16,7 @@ import { SpatialObjectManager } from '../services/spatialObjectManager';
  * can fall back to the heuristic <CameraScanner /> instead of showing a
  * broken screen.
  */
-export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) {
+export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported, onOpenFlyConnectome }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const rafRef = useRef(null);
@@ -239,6 +239,15 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
                   title="Cambiar a escáner básico"
                 >
                   Básico
+                </button>
+              )}
+              {onOpenFlyConnectome && (
+                <button
+                  onClick={onOpenFlyConnectome}
+                  className="px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-emerald-500/25 to-teal-500/25 text-emerald-300 border border-emerald-400/40 hover:brightness-110 flex items-center space-x-1 transition active:scale-95"
+                  title="Simulador Conectoma Drosophila"
+                >
+                  <span>🪰 Mosca 3D</span>
                 </button>
               )}
               <button onClick={onLoadPreset} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-indigo-500/80 to-purple-600/80 text-white border border-white/20 flex items-center space-x-1">

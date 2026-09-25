@@ -29,7 +29,7 @@ import {
 import { RoomReconstruction } from '../services/roomReconstruction';
 import { Exporter } from '../services/exporter';
 
-export function SimulationViewer({ scanData, onBackToScan }) {
+export function SimulationViewer({ scanData, onBackToScan, onOpenFlyConnectome }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -611,6 +611,17 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             <span className="text-xs font-semibold hidden sm:inline">Escanear</span>
           </button>
           
+          {onOpenFlyConnectome && (
+            <button
+              onClick={onOpenFlyConnectome}
+              className="px-2.5 py-1.5 rounded-xl glass-btn text-xs font-semibold text-emerald-400 hover:text-emerald-200 border border-emerald-500/30 flex items-center space-x-1"
+              title="Abrir Simulación Conectoma Mosca (Drosophila MaleCNS)"
+            >
+              <span>🪰</span>
+              <span className="hidden sm:inline">Mosca 3D</span>
+            </button>
+          )}
+
           <div className="glass-pill px-3 py-1.5 rounded-xl border border-cyan-500/20">
             <span className="text-xs font-bold text-white tracking-wide truncate max-w-[130px] sm:max-w-xs block">
               {scanData.name || 'Simulación 3D'}
