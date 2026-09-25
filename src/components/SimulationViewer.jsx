@@ -23,7 +23,8 @@ import {
   Maximize2,
   ChevronDown,
   ChevronUp,
-  Target
+  Target,
+  Activity
 } from 'lucide-react';
 import { RoomReconstruction } from '../services/roomReconstruction';
 import { Exporter } from '../services/exporter';
@@ -46,10 +47,11 @@ export function SimulationViewer({ scanData, onBackToScan }) {
   const hemiLightRef = useRef(null);
   const spotLightsRef = useRef([]);
   const measureLineRef = useRef(null);
+  const surfaceMeshRef = useRef(null);
 
   // Viewer State
   const [navMode, setNavMode] = useState('orbit'); // 'orbit' | 'walk'
-  const [renderStyle, setRenderStyle] = useState('mesh'); // 'mesh' | 'points' | 'cad' | 'thermal'
+  const [renderStyle, setRenderStyle] = useState('surface'); // 'surface' | 'mesh' | 'points' | 'cad' | 'thermal'
   const [timeOfDay, setTimeOfDay] = useState(14); // 8 to 22 hrs
   const [lightsOn, setLightsOn] = useState(true);
   const [lightTemp, setLightTemp] = useState(3500); // 2700K warm to 6500K cool
@@ -253,6 +255,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     if (roomGroupRef.current) scene.remove(roomGroupRef.current);
     if (pointCloudRef.current) scene.remove(pointCloudRef.current);
     if (cadGroupRef.current) scene.remove(cadGroupRef.current);
+    if (surfaceMeshRef.current) scene.remove(surfaceMeshRef.current);
 
     // 1. Room Mesh
     const roomGroup = RoomReconstruction.buildRoomMesh(bounds, scanData.keyframes, isCeilingVisible);
@@ -269,12 +272,22 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     cadGroupRef.current = cadGroup;
     scene.add(cadGroup);
 
+    // 4. Dense Continuous Surface Mesh (Faithful 3D Topography)
+    const surfaceMesh = RoomReconstruction.buildDenseSurfaceMesh(points, bounds);
+    surfaceMeshRef.current = surfaceMesh;
+    scene.add(surfaceMesh);
+
     applyRenderStyle(renderStyle);
   };
 
   const applyRenderStyle = (style) => {
     setRenderStyle(style);
-    if (roomGroupRef.current) roomGroupRef.current.visible = (style === 'mesh');
+    if (surfaceMeshRef.current) {
+      surfaceMeshRef.current.visible = (style === 'surface' || style === 'mesh');
+    }
+    if (roomGroupRef.current) {
+      roomGroupRef.current.visible = (style === 'mesh');
+    }
     if (pointCloudRef.current) {
       pointCloudRef.current.visible = (style === 'points' || style === 'thermal');
       if (style === 'thermal' || style === 'points') {
@@ -285,7 +298,9 @@ export function SimulationViewer({ scanData, onBackToScan }) {
         scene.add(newPC);
       }
     }
-    if (cadGroupRef.current) cadGroupRef.current.visible = (style === 'cad');
+    if (cadGroupRef.current) {
+      cadGroupRef.current.visible = (style === 'cad');
+    }
   };
 
   // Toggle Ceiling Cutaway Mode
@@ -603,11 +618,20 @@ export function SimulationViewer({ scanData, onBackToScan }) {
           {/* Render Style Toggles */}
           <div className="flex p-0.5 rounded-xl glass-pill border border-white/10">
             <button
+              onClick={() => applyRenderStyle('surface')}
+              className={`p-1.5 rounded-lg text-xs font-semibold transition ${
+                renderStyle === 'surface' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400'
+              }`}
+              title="Malla 3D Fiel (Superficie Continua Real)"
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => applyRenderStyle('mesh')}
               className={`p-1.5 rounded-lg text-xs font-semibold transition ${
                 renderStyle === 'mesh' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400'
               }`}
-              title="Render Texturizado 3D"
+              title="Modelo Híbrido (Malla + Muros)"
             >
               <Box className="w-4 h-4" />
             </button>

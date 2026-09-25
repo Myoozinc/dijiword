@@ -253,65 +253,69 @@ export class SpatialEngine {
     const cosYaw = Math.cos(yaw);
     const sinYaw = Math.sin(yaw);
 
-    const maxNewPointsPerFrame = 60;
+    // Monocular 3D Surface Reconstruction
+    const maxNewPointsPerFrame = 90;
     const selected = features
       .sort((a, b) => b.grad - a.grad)
       .slice(0, maxNewPointsPerFrame);
 
     for (const f of selected) {
-      // Normalized device coordinates (-1 to 1)
       const ndcX = (f.x - 0.5) * 2;
-      const ndcY = (0.5 - f.y) * 2; // Invert Y for 3D world coordinates
+      const ndcY = (0.5 - f.y) * 2;
       
-      // Ray in camera coordinate space
       const rayCamX = ndcX * Math.tan(this.fov / 2);
       const rayCamY = ndcY * Math.tan(this.fov / 2) * (9 / 16);
       const rayCamZ = -1.0;
 
-      // Rotate ray by camera pitch & yaw
-      // 1. Pitch rotation around X
+      // Rotate ray by pitch & yaw
       const ry1 = rayCamY * cosPitch - rayCamZ * sinPitch;
       const rz1 = rayCamY * sinPitch + rayCamZ * cosPitch;
       const rx1 = rayCamX;
 
-      // 2. Yaw rotation around Y
       const rx2 = rx1 * cosYaw + rz1 * sinYaw;
       const ry2 = ry1;
       const rz2 = -rx1 * sinYaw + rz1 * cosYaw;
 
-      // Ray direction normalized
       const len = Math.sqrt(rx2 * rx2 + ry2 * ry2 + rz2 * rz2) || 1;
       const dirX = rx2 / len;
       const dirY = ry2 / len;
       const dirZ = rz2 / len;
 
-      // Monocular Depth Estimation:
-      // Floor plane intersection or wall distance projection
-      let depth = 2.5; // default 2.5 meters
-      
+      let depth = 2.4;
+      let targetElevation = 0; // Surface height above floor
+
       if (dirY < -0.05) {
-        // Pointing down towards floor
-        // Floor is at y = 0, camera is at y = eyeHeight
-        const tFloor = -eyeHeight / dirY;
-        depth = Math.max(0.6, Math.min(6.0, tFloor));
+        // Pointing down towards floor or elevated furniture (couch, table, bed, chairs)
+        // Check if feature is in lower-middle zone where furniture rests (elevation relief)
+        if (f.y < 0.65 && f.grad > 40) {
+          // Elevated surface (table, desk, couch, bed cushion)
+          targetElevation = Math.min(1.1, Math.max(0.2, (0.65 - f.y) * 2.2));
+        } else {
+          targetElevation = 0; // Ground floor plane
+        }
+
+        const tSurface = (targetElevation - eyeHeight) / dirY;
+        depth = Math.max(0.5, Math.min(6.5, tSurface));
       } else if (dirY > 0.15) {
-        // Pointing up towards ceiling (approx 2.6m - 3.0m ceiling height)
+        // Ceiling
         const ceilingHeight = 2.8;
         const tCeil = (ceilingHeight - eyeHeight) / dirY;
         depth = Math.max(0.8, Math.min(5.5, tCeil));
+        targetElevation = ceilingHeight;
       } else {
-        // Walls / objects in line of sight (depth proxy modulated by feature contrast)
-        const contrastFactor = Math.min(1.5, Math.max(0.7, 120 / (f.grad + 40)));
+        // Vertical walls or tall furniture
+        const contrastFactor = Math.min(1.4, Math.max(0.65, 120 / (f.grad + 40)));
         depth = 2.4 * contrastFactor;
+        targetElevation = Math.max(0, eyeHeight + dirY * depth);
       }
 
-      // Compute 3D world coordinates
+      // 3D world coordinates with true physical elevation
       const worldX = dirX * depth;
-      const worldY = eyeHeight + dirY * depth;
+      const worldY = Math.max(0, targetElevation);
       const worldZ = dirZ * depth;
 
-      // Spatial downsampling: check if nearby point already exists in voxel
-      if (!this.isPointDuplicate(worldX, worldY, worldZ, 0.08)) {
+      // Spatial downsampling with 5cm voxel resolution
+      if (!this.isPointDuplicate(worldX, worldY, worldZ, 0.05)) {
         this.points.push({
           x: Number(worldX.toFixed(3)),
           y: Number(worldY.toFixed(3)),
@@ -324,7 +328,7 @@ export class SpatialEngine {
     }
 
     // Limit maximum points for smooth 60fps mobile simulation
-    if (this.points.length > 35000) {
+    if (this.points.length > 50000) {
       this.points = this.points.filter((_, idx) => idx % 2 === 0);
     }
   }

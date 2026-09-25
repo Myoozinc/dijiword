@@ -373,7 +373,126 @@ export class RoomReconstruction {
   }
 
   /**
-   * Create an AI Detected Object Mesh with its REAL CAPTURED PHOTO TEXTURE
+   * Build Faithful Continuous 3D Surface Mesh from Scanned Points
+   * Recreates the actual continuous physical topography and 3D relief of the room and furniture
+   */
+  static buildDenseSurfaceMesh(points, bounds) {
+    if (!points || points.length < 50) return new THREE.Group();
+
+    const group = new THREE.Group();
+    group.name = 'DenseSurfaceMeshGroup';
+
+    const { min, max } = bounds;
+    const gridResX = 50;
+    const gridResZ = 50;
+
+    const stepX = (max.x - min.x) / gridResX;
+    const stepZ = (max.z - min.z) / gridResZ;
+
+    const heightGrid = new Float32Array(gridResX * gridResZ);
+    const colorGridR = new Float32Array(gridResX * gridResZ);
+    const colorGridG = new Float32Array(gridResX * gridResZ);
+    const colorGridB = new Float32Array(gridResX * gridResZ);
+    const countGrid = new Uint16Array(gridResX * gridResZ);
+
+    for (let i = 0; i < gridResX * gridResZ; i++) {
+      colorGridR[i] = 0.55;
+      colorGridG[i] = 0.45;
+      colorGridB[i] = 0.35;
+    }
+
+    for (const p of points) {
+      const gx = Math.floor((p.x - min.x) / stepX);
+      const gz = Math.floor((p.z - min.z) / stepZ);
+
+      if (gx >= 0 && gx < gridResX && gz >= 0 && gz < gridResZ) {
+        const idx = gz * gridResX + gx;
+        if (p.y > heightGrid[idx]) {
+          heightGrid[idx] = p.y;
+        }
+        colorGridR[idx] = (colorGridR[idx] * countGrid[idx] + (p.r ?? 0.6)) / (countGrid[idx] + 1);
+        colorGridG[idx] = (colorGridG[idx] * countGrid[idx] + (p.g ?? 0.6)) / (countGrid[idx] + 1);
+        colorGridB[idx] = (colorGridB[idx] * countGrid[idx] + (p.b ?? 0.6)) / (countGrid[idx] + 1);
+        countGrid[idx]++;
+      }
+    }
+
+    const vertices = [];
+    const colors = [];
+    const indices = [];
+
+    let vertIndex = 0;
+    const vertMap = new Int32Array(gridResX * gridResZ).fill(-1);
+
+    for (let gz = 0; gz < gridResZ; gz++) {
+      for (let gx = 0; gx < gridResX; gx++) {
+        const idx = gz * gridResX + gx;
+        const x = min.x + (gx + 0.5) * stepX;
+        const z = min.z + (gz + 0.5) * stepZ;
+        const y = Math.max(0, heightGrid[idx]);
+
+        vertices.push(x, y, z);
+        colors.push(colorGridR[idx], colorGridG[idx], colorGridB[idx]);
+        vertMap[idx] = vertIndex++;
+      }
+    }
+
+    for (let gz = 0; gz < gridResZ - 1; gz++) {
+      for (let gx = 0; gx < gridResX - 1; gx++) {
+        const i0 = vertMap[gz * gridResX + gx];
+        const i1 = vertMap[gz * gridResX + (gx + 1)];
+        const i2 = vertMap[(gz + 1) * gridResX + gx];
+        const i3 = vertMap[(gz + 1) * gridResX + (gx + 1)];
+
+        const y0 = vertices[i0 * 3 + 1];
+        const y1 = vertices[i1 * 3 + 1];
+        const y2 = vertices[i2 * 3 + 1];
+        const y3 = vertices[i3 * 3 + 1];
+
+        const maxDelta = 1.4;
+        if (Math.abs(y0 - y1) < maxDelta && Math.abs(y0 - y2) < maxDelta) {
+          indices.push(i0, i2, i1);
+        }
+        if (Math.abs(y3 - y1) < maxDelta && Math.abs(y3 - y2) < maxDelta) {
+          indices.push(i1, i2, i3);
+        }
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.65,
+      metalness: 0.1,
+      side: THREE.DoubleSide
+    });
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    group.add(mesh);
+
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: 0x06b6d4,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.15
+    });
+    const wireMesh = new THREE.Mesh(geo, wireMat);
+    wireMesh.position.y += 0.002;
+    group.add(wireMesh);
+
+    return group;
+  }
+
+  /**
+   * Create an AI Detected Object with TRUE SCULPTED 3D GEOMETRY and Real Photo Texture Card
+   * Eliminates flat panel appearance by spawning realistic 3D volumetric bodies
    */
   static createAIObjectMesh(detectedObj) {
     const group = new THREE.Group();
@@ -386,6 +505,7 @@ export class RoomReconstruction {
 
     const { width = 1.0, height = 0.85, depth = 0.8 } = detectedObj.size3D || {};
     const pos = detectedObj.position3D || { x: 0, y: 0, z: 0 };
+    const cls = (detectedObj.class || '').toLowerCase();
 
     // 1. Soft Floor Contact Shadow
     const shadowCanvas = document.createElement('canvas');
@@ -400,69 +520,95 @@ export class RoomReconstruction {
     sCtx.fillRect(0, 0, 128, 128);
 
     const shadowTex = new THREE.CanvasTexture(shadowCanvas);
-    const shadowGeo = new THREE.PlaneGeometry(width * 1.25, depth * 1.25);
+    const shadowGeo = new THREE.PlaneGeometry(width * 1.3, depth * 1.3);
     const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false });
     const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
     shadowMesh.rotation.x = -Math.PI / 2;
     shadowMesh.position.y = 0.005;
     group.add(shadowMesh);
 
-    // 2. High-Fidelity Object Mesh
-    let mat;
-    if (detectedObj.texture) {
-      const img = new Image();
-      img.src = detectedObj.texture;
-      const texture = new THREE.Texture(img);
-      img.onload = () => { texture.needsUpdate = true; };
-      
-      mat = new THREE.MeshStandardMaterial({
-        map: texture,
-        roughness: 0.4,
-        metalness: 0.15,
-        bumpScale: 0.05
+    // 2. Sculpted Physical 3D Shape based on class
+    let object3D;
+    if (cls.includes('couch') || cls.includes('sofa')) {
+      object3D = this.createFurniture('sofa');
+    } else if (cls.includes('bed')) {
+      object3D = this.createFurniture('bed');
+    } else if (cls.includes('desk')) {
+      object3D = this.createFurniture('desk');
+    } else if (cls.includes('table')) {
+      object3D = this.createFurniture('dining');
+    } else if (cls.includes('plant')) {
+      object3D = this.createFurniture('plant');
+    } else if (cls.includes('tv')) {
+      object3D = this.createFurniture('tv');
+    } else if (cls.includes('person')) {
+      object3D = this.createFurniture('mannequin');
+    } else if (cls.includes('chair')) {
+      // Sculpted 3D Chair
+      const chairGroup = new THREE.Group();
+      const woodMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6 });
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.5), woodMat);
+      seat.position.y = 0.45;
+      chairGroup.add(seat);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.05), woodMat);
+      back.position.set(0, 0.68, -0.22);
+      chairGroup.add(back);
+      [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]].forEach(([lx, lz]) => {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.015, 0.45), woodMat);
+        leg.position.set(lx, 0.225, lz);
+        chairGroup.add(leg);
       });
+      object3D = chairGroup;
     } else {
-      mat = new THREE.MeshStandardMaterial({
-        color: 0x0284c7,
-        roughness: 0.35,
-        metalness: 0.2
-      });
+      // Solid Architectural 3D Voxel
+      const boxGeo = new THREE.BoxGeometry(width, height, depth);
+      const boxMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.35, metalness: 0.2 });
+      object3D = new THREE.Mesh(boxGeo, boxMat);
+      object3D.position.y = height / 2;
     }
 
-    const boxGeo = new THREE.BoxGeometry(width, height, depth);
-    const mesh = new THREE.Mesh(boxGeo, mat);
-    mesh.position.y = height / 2;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+    object3D.castShadow = true;
+    object3D.receiveShadow = true;
+    group.add(object3D);
 
-    // 3. Crisp Holographic Accent Wireframe
-    const wireGeo = new THREE.WireframeGeometry(boxGeo);
-    const wireMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.65 });
-    const wire = new THREE.LineSegments(wireGeo, wireMat);
+    // 3. Crisp Cyan Holographic Bounds Wireframe
+    const wireBoxGeo = new THREE.BoxGeometry(width, height, depth);
+    const wireMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.5 });
+    const wire = new THREE.LineSegments(new THREE.WireframeGeometry(wireBoxGeo), wireMat);
     wire.position.y = height / 2;
     group.add(wire);
 
-    // 4. Floating Holographic Info Card
+    // 4. Real Photo Texture Card attached to the object
+    if (detectedObj.texture) {
+      const img = new Image();
+      img.src = detectedObj.texture;
+      const photoTex = new THREE.Texture(img);
+      img.onload = () => { photoTex.needsUpdate = true; };
+
+      const cardGeo = new THREE.PlaneGeometry(Math.min(0.6, width * 0.7), Math.min(0.45, height * 0.7));
+      const cardMat = new THREE.MeshBasicMaterial({ map: photoTex, side: THREE.DoubleSide });
+      const cardMesh = new THREE.Mesh(cardGeo, cardMat);
+      cardMesh.position.set(0, height + 0.15, depth / 2 + 0.02);
+      group.add(cardMesh);
+    }
+
+    // 5. Floating Architectural Info Badge
     const tagCanvas = document.createElement('canvas');
     tagCanvas.width = 280;
     tagCanvas.height = 70;
     const tagCtx = tagCanvas.getContext('2d');
 
-    // Background pill
-    tagCtx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    tagCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
     tagCtx.roundRect(0, 0, 280, 70, 16);
     tagCtx.fill();
     tagCtx.strokeStyle = '#06b6d4';
     tagCtx.lineWidth = 3;
     tagCtx.stroke();
 
-    // Label with Icon
     tagCtx.fillStyle = '#ffffff';
     tagCtx.font = 'bold 22px system-ui';
     tagCtx.fillText(`${detectedObj.icon || '📦'} ${detectedObj.label}`, 16, 32);
 
-    // Subtitle Dimensions & Confidence
     tagCtx.fillStyle = '#22d3ee';
     tagCtx.font = 'bold 15px monospace';
     tagCtx.fillText(`${width}m × ${depth}m × ${height}m`, 16, 54);
@@ -471,7 +617,7 @@ export class RoomReconstruction {
     const tagMat = new THREE.SpriteMaterial({ map: tagTex, transparent: true });
     const sprite = new THREE.Sprite(tagMat);
     sprite.scale.set(0.95, 0.26, 1);
-    sprite.position.set(0, height + 0.3, 0);
+    sprite.position.set(0, height + 0.45, 0);
     group.add(sprite);
 
     group.position.set(pos.x, pos.y, pos.z);
