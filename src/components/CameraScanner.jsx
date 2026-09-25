@@ -21,7 +21,7 @@ import { SpatialEngine } from '../services/spatialEngine';
 import { AIVisionDetector } from '../services/aiVisionDetector';
 import { SpatialObjectManager } from '../services/spatialObjectManager';
 
-export function CameraScanner({ onCompleteScan, onLoadPreset }) {
+export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR }) {
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const engineRef = useRef(null);
@@ -379,6 +379,16 @@ export function CameraScanner({ onCompleteScan, onLoadPreset }) {
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-2">
+          {onSwitchToRealAR && (
+            <button
+              onClick={onSwitchToRealAR}
+              className="px-2.5 py-1.5 rounded-full text-[10px] font-bold bg-cyan-600/80 hover:bg-cyan-500 text-white shadow-lg flex items-center space-x-1"
+              title="Cambiar al motor AR Real (8th Wall SLAM)"
+            >
+              <span>AR Real</span>
+            </button>
+          )}
+
           {needsSensorPermission && (
             <button
               onClick={handleRequestSensors}

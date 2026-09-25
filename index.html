@@ -11,6 +11,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <!--
+      8th Wall Engine (free & open source since 2026-02-28, no account / API key needed).
+      Provides REAL 6DoF SLAM/VIO world tracking that works in Safari on iPhone (unlike WebXR,
+      which Safari still doesn't support). data-preload-chunks="slam" preloads the World
+      Tracking module. See: https://8thwall.org/docs/engine/overview
+      This dispatches a `window` "xrloaded" event once XR8 is ready — see src/services/xr8Engine.js
+    -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+      async
+      crossorigin="anonymous"
+      data-preload-chunks="slam"
+    ></script>
   </head>
   <body class="bg-[#090d16] text-slate-100 antialiased overflow-hidden select-none touch-none">
     <div id="root"></div>
