@@ -20,7 +20,10 @@ import {
   Thermometer,
   Sliders,
   Scan,
-  Maximize2
+  Maximize2,
+  ChevronDown,
+  ChevronUp,
+  Target
 } from 'lucide-react';
 import { RoomReconstruction } from '../services/roomReconstruction';
 import { Exporter } from '../services/exporter';
@@ -54,6 +57,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
   const [activeTab, setActiveTab] = useState('lighting'); // 'lighting' | 'ai_objects' | 'furniture' | 'stats' | 'export'
   const [selectedFurnitureId, setSelectedFurnitureId] = useState(null);
   const [furnitureList, setFurnitureList] = useState([]);
+  const [isDrawerCollapsed, setIsDrawerCollapsed] = useState(false);
   
   // Measurement state
   const [measureMode, setMeasureMode] = useState(false);
@@ -543,10 +547,18 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     return labels[type] || type;
   };
 
+  const focusOnObject = (obj) => {
+    if (!controlsRef.current || !cameraRef.current) return;
+    const { x, y = 0, z } = obj.position3D || {};
+    controlsRef.current.target.set(x, y + 0.4, z);
+    cameraRef.current.position.set(x + 1.8, y + 1.4, z + 1.8);
+    controlsRef.current.update();
+  };
+
   return (
-    <div className="relative w-full h-full flex flex-col bg-[#090d16] overflow-hidden select-none">
+    <div className="relative w-full h-[100dvh] flex flex-col bg-[#090d16] overflow-hidden select-none">
       {/* Top Floating Control Bar */}
-      <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
+      <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 bg-gradient-to-b from-black/85 via-black/40 to-transparent pointer-events-none">
         <div className="flex items-center space-x-2 pointer-events-auto">
           <button
             onClick={onBackToScan}
@@ -733,174 +745,192 @@ export function SimulationViewer({ scanData, onBackToScan }) {
       )}
 
       {/* Bottom Floating Interactive Simulation Drawer */}
-      <div className="absolute bottom-0 inset-x-0 z-30 glass-panel rounded-t-3xl border-t border-cyan-500/20 shadow-2xl flex flex-col">
+      <div className={`absolute bottom-0 inset-x-0 z-30 glass-panel rounded-t-3xl border-t border-cyan-500/20 shadow-2xl flex flex-col transition-all duration-300 pb-[max(0.75rem,env(safe-area-inset-bottom))]`}>
+        {/* Drawer Pull Handle & Collapse Toggle */}
+        <div 
+          onClick={() => setIsDrawerCollapsed(!isDrawerCollapsed)}
+          className="w-full flex items-center justify-between px-6 pt-2 pb-1 cursor-pointer"
+        >
+          <div className="w-8" />
+          <div className="w-12 h-1 rounded-full bg-slate-600/70" />
+          <button className="text-slate-400 hover:text-white p-1">
+            {isDrawerCollapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+
         {/* Navigation Tabs */}
-        <div className="flex items-center justify-around px-4 pt-3 pb-2 border-b border-white/5 text-xs font-semibold">
+        <div className="flex items-center justify-around px-3 pt-1 pb-2 border-b border-white/5 text-[11px] font-semibold">
           <button
-            onClick={() => setActiveTab('lighting')}
-            className={`pb-1 flex items-center space-x-1.5 transition ${
+            onClick={() => { setActiveTab('lighting'); setIsDrawerCollapsed(false); }}
+            className={`pb-1 flex items-center space-x-1 transition ${
               activeTab === 'lighting' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
             }`}
           >
-            <Sun className="w-4 h-4" />
+            <Sun className="w-3.5 h-3.5" />
             <span>Luz & Sol</span>
           </button>
           
           <button
-            onClick={() => setActiveTab('ai_objects')}
-            className={`pb-1 flex items-center space-x-1.5 transition ${
+            onClick={() => { setActiveTab('ai_objects'); setIsDrawerCollapsed(false); }}
+            className={`pb-1 flex items-center space-x-1 transition ${
               activeTab === 'ai_objects' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
             }`}
           >
-            <Scan className="w-4 h-4" />
-            <span>Objetos IA ({aiDetectedObjects.length})</span>
+            <Scan className="w-3.5 h-3.5" />
+            <span>Objetos ({aiDetectedObjects.length})</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('furniture')}
-            className={`pb-1 flex items-center space-x-1.5 transition ${
+            onClick={() => { setActiveTab('furniture'); setIsDrawerCollapsed(false); }}
+            className={`pb-1 flex items-center space-x-1 transition ${
               activeTab === 'furniture' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
             }`}
           >
-            <Plus className="w-4 h-4" />
-            <span>Mobiliario ({furnitureList.length})</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>Mobiliario</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('stats')}
-            className={`pb-1 flex items-center space-x-1.5 transition ${
+            onClick={() => { setActiveTab('stats'); setIsDrawerCollapsed(false); }}
+            className={`pb-1 flex items-center space-x-1 transition ${
               activeTab === 'stats' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
             }`}
           >
-            <Info className="w-4 h-4" />
+            <Info className="w-3.5 h-3.5" />
             <span>Cotas</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('export')}
-            className={`pb-1 flex items-center space-x-1.5 transition ${
+            onClick={() => { setActiveTab('export'); setIsDrawerCollapsed(false); }}
+            className={`pb-1 flex items-center space-x-1 transition ${
               activeTab === 'export' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
             }`}
           >
-            <Download className="w-4 h-4" />
+            <Download className="w-3.5 h-3.5" />
             <span>Exportar</span>
           </button>
         </div>
 
-        {/* Tab 1: Functional Lighting & Solar Simulation */}
-        {activeTab === 'lighting' && (
-          <div className="p-4 flex flex-col space-y-3.5">
-            {/* Sun Time of Day Slider */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center space-x-2 text-xs font-semibold text-slate-200">
-                  {timeOfDay >= 19 || timeOfDay < 7 ? (
-                    <Moon className="w-4 h-4 text-indigo-400" />
-                  ) : (
-                    <Sun className="w-4 h-4 text-amber-400" />
-                  )}
-                  <span>Posición Solar & Sombras:</span>
-                </div>
-                <span className="text-xs font-mono font-bold text-cyan-400">
-                  {timeOfDay}:00 hrs
-                </span>
-              </div>
-              <div className="flex items-center space-x-3">
-                <span className="text-[11px] text-slate-400">08:00</span>
-                <input
-                  type="range"
-                  min="8"
-                  max="22"
-                  step="1"
-                  value={timeOfDay}
-                  onChange={(e) => setTimeOfDay(parseInt(e.target.value))}
-                  className="w-full accent-cyan-400 cursor-pointer"
-                />
-                <span className="text-[11px] text-slate-400">22:00</span>
-              </div>
-            </div>
-
-            {/* Interior Lights & Color Temp Controls */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              {/* Ceiling Spotlights Toggle */}
-              <button
-                onClick={() => setLightsOn(!lightsOn)}
-                className={`py-2 px-3 rounded-xl border flex items-center justify-between text-xs font-bold transition ${
-                  lightsOn 
-                    ? 'bg-amber-500/20 border-amber-400/50 text-amber-300' 
-                    : 'glass-btn text-slate-400'
-                }`}
-              >
-                <div className="flex items-center space-x-1.5">
-                  <Lightbulb className="w-4 h-4" />
-                  <span>Focos Techo</span>
-                </div>
-                <span>{lightsOn ? 'ON' : 'OFF'}</span>
-              </button>
-
-              {/* Color Temperature (Kelvin) */}
-              <button
-                onClick={() => setLightTemp(prev => (prev === 2700 ? 4000 : prev === 4000 ? 6500 : 2700))}
-                className="py-2 px-3 rounded-xl glass-btn border border-white/10 flex items-center justify-between text-xs font-bold text-cyan-300"
-              >
-                <div className="flex items-center space-x-1.5">
-                  <Thermometer className="w-4 h-4" />
-                  <span>Temperatura</span>
-                </div>
-                <span className="text-[11px] font-mono">
-                  {lightTemp === 2700 ? '2700K 🟡' : lightTemp === 4000 ? '4000K ⚪' : '6500K 🔵'}
-                </span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 2: AI Detected Objects & Textures */}
-        {activeTab === 'ai_objects' && (
-          <div className="p-4 flex flex-col space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-300">
-                Objetos, Sujetos y Texturas Detectados por IA:
-              </span>
-              <span className="text-[11px] font-mono text-cyan-400">
-                {aiDetectedObjects.length} detectados
-              </span>
-            </div>
-
-            {aiDetectedObjects.length === 0 ? (
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
-                No se detectaron objetos en este escaneo. Puedes agregar mobiliario en la pestaña "Mobiliario".
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto no-scrollbar">
-                {aiDetectedObjects.map((obj) => (
-                  <div
-                    key={obj.id}
-                    className="p-2.5 rounded-xl glass-btn border border-cyan-500/30 flex items-center space-x-2"
-                  >
-                    {obj.texture ? (
-                      <img
-                        src={obj.texture}
-                        alt={obj.label}
-                        className="w-10 h-10 rounded-lg object-cover border border-cyan-400/40"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
-                        <Box className="w-5 h-5" />
-                      </div>
-                    )}
-                    <div className="flex-1 truncate">
-                      <div className="text-xs font-bold text-white truncate">{obj.label}</div>
-                      <div className="text-[10px] text-cyan-400 font-mono">
-                        {obj.depth}m • {obj.score}%
-                      </div>
+        {/* Collapsible Drawer Content */}
+        {!isDrawerCollapsed && (
+          <>
+            {/* Tab 1: Functional Lighting & Solar Simulation */}
+            {activeTab === 'lighting' && (
+              <div className="p-4 flex flex-col space-y-3.5">
+                {/* Sun Time of Day Slider */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center space-x-2 text-xs font-semibold text-slate-200">
+                      {timeOfDay >= 19 || timeOfDay < 7 ? (
+                        <Moon className="w-4 h-4 text-indigo-400" />
+                      ) : (
+                        <Sun className="w-4 h-4 text-amber-400" />
+                      )}
+                      <span>Posición Solar & Sombras:</span>
                     </div>
+                    <span className="text-xs font-mono font-bold text-cyan-400">
+                      {timeOfDay}:00 hrs
+                    </span>
                   </div>
-                ))}
+                  <div className="flex items-center space-x-3">
+                    <span className="text-[11px] text-slate-400">08:00</span>
+                    <input
+                      type="range"
+                      min="8"
+                      max="22"
+                      step="1"
+                      value={timeOfDay}
+                      onChange={(e) => setTimeOfDay(parseInt(e.target.value))}
+                      className="w-full accent-cyan-400 cursor-pointer"
+                    />
+                    <span className="text-[11px] text-slate-400">22:00</span>
+                  </div>
+                </div>
+
+                {/* Interior Lights & Color Temp Controls */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    onClick={() => setLightsOn(!lightsOn)}
+                    className={`py-2 px-3 rounded-xl border flex items-center justify-between text-xs font-bold transition ${
+                      lightsOn 
+                        ? 'bg-amber-500/20 border-amber-400/50 text-amber-300' 
+                        : 'glass-btn text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5">
+                      <Lightbulb className="w-4 h-4" />
+                      <span>Focos Techo</span>
+                    </div>
+                    <span>{lightsOn ? 'ON' : 'OFF'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setLightTemp(prev => (prev === 2700 ? 4000 : prev === 4000 ? 6500 : 2700))}
+                    className="py-2 px-3 rounded-xl glass-btn border border-white/10 flex items-center justify-between text-xs font-bold text-cyan-300"
+                  >
+                    <div className="flex items-center space-x-1.5">
+                      <Thermometer className="w-4 h-4" />
+                      <span>Temperatura</span>
+                    </div>
+                    <span className="text-[11px] font-mono">
+                      {lightTemp === 2700 ? '2700K 🟡' : lightTemp === 4000 ? '4000K ⚪' : '6500K 🔵'}
+                    </span>
+                  </button>
+                </div>
               </div>
             )}
-          </div>
-        )}
+
+            {/* Tab 2: AI Detected Objects & Textures */}
+            {activeTab === 'ai_objects' && (
+              <div className="p-4 flex flex-col space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">
+                    Objetos y Sujetos Anclados en 3D:
+                  </span>
+                  <span className="text-[11px] font-mono text-cyan-400">
+                    {aiDetectedObjects.length} registrados
+                  </span>
+                </div>
+
+                {aiDetectedObjects.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
+                    No se detectaron objetos en este escaneo. Puedes agregar mobiliario en la pestaña "Mobiliario".
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto no-scrollbar">
+                    {aiDetectedObjects.map((obj) => (
+                      <div
+                        key={obj.id}
+                        onClick={() => focusOnObject(obj)}
+                        className="p-2 rounded-xl glass-btn border border-cyan-500/30 hover:border-cyan-400/80 cursor-pointer flex items-center space-x-2 active:scale-95 transition"
+                        title="Toca para enfocar la cámara en 3D"
+                      >
+                        {obj.texture ? (
+                          <img
+                            src={obj.texture}
+                            alt={obj.label}
+                            className="w-10 h-10 rounded-lg object-cover border border-cyan-400/40 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shrink-0 text-base">
+                            {obj.icon || '📦'}
+                          </div>
+                        )}
+                        <div className="flex-1 truncate">
+                          <div className="text-xs font-bold text-white truncate flex items-center justify-between">
+                            <span className="truncate">{obj.label}</span>
+                            <Target className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
+                          </div>
+                          <div className="text-[10px] text-cyan-400 font-mono">
+                            {obj.size3D ? `${obj.size3D.width}×${obj.size3D.depth}m` : `${obj.depth}m`}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
         {/* Tab 3: Furniture Simulator */}
         {activeTab === 'furniture' && (
@@ -1022,6 +1052,8 @@ export function SimulationViewer({ scanData, onBackToScan }) {
               </button>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

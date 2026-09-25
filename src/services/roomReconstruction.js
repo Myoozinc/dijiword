@@ -384,10 +384,30 @@ export class RoomReconstruction {
       isAIObject: true
     };
 
-    const { width = 1.0, height = 0.9, depth = 0.8 } = detectedObj.size3D || {};
+    const { width = 1.0, height = 0.85, depth = 0.8 } = detectedObj.size3D || {};
     const pos = detectedObj.position3D || { x: 0, y: 0, z: 0 };
 
-    // 1. If photo texture was extracted from video, apply to 3D bounding box
+    // 1. Soft Floor Contact Shadow
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = 128;
+    shadowCanvas.height = 128;
+    const sCtx = shadowCanvas.getContext('2d');
+    const sGrad = sCtx.createRadialGradient(64, 64, 10, 64, 64, 60);
+    sGrad.addColorStop(0, 'rgba(0, 0, 0, 0.45)');
+    sGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0.2)');
+    sGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    sCtx.fillStyle = sGrad;
+    sCtx.fillRect(0, 0, 128, 128);
+
+    const shadowTex = new THREE.CanvasTexture(shadowCanvas);
+    const shadowGeo = new THREE.PlaneGeometry(width * 1.25, depth * 1.25);
+    const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false });
+    const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+    shadowMesh.rotation.x = -Math.PI / 2;
+    shadowMesh.position.y = 0.005;
+    group.add(shadowMesh);
+
+    // 2. High-Fidelity Object Mesh
     let mat;
     if (detectedObj.texture) {
       const img = new Image();
@@ -397,13 +417,14 @@ export class RoomReconstruction {
       
       mat = new THREE.MeshStandardMaterial({
         map: texture,
-        roughness: 0.5,
-        metalness: 0.1
+        roughness: 0.4,
+        metalness: 0.15,
+        bumpScale: 0.05
       });
     } else {
       mat = new THREE.MeshStandardMaterial({
-        color: 0x38bdf8,
-        roughness: 0.4,
+        color: 0x0284c7,
+        roughness: 0.35,
         metalness: 0.2
       });
     }
@@ -415,38 +436,42 @@ export class RoomReconstruction {
     mesh.receiveShadow = true;
     group.add(mesh);
 
-    // 2. Cyan holographic outline
+    // 3. Crisp Holographic Accent Wireframe
     const wireGeo = new THREE.WireframeGeometry(boxGeo);
-    const wireMat = new THREE.LineBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.7 });
+    const wireMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.65 });
     const wire = new THREE.LineSegments(wireGeo, wireMat);
     wire.position.y = height / 2;
     group.add(wire);
 
-    // 3. Floating 3D Text Label
+    // 4. Floating Holographic Info Card
     const tagCanvas = document.createElement('canvas');
-    tagCanvas.width = 256;
-    tagCanvas.height = 64;
+    tagCanvas.width = 280;
+    tagCanvas.height = 70;
     const tagCtx = tagCanvas.getContext('2d');
-    tagCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-    tagCtx.roundRect(0, 0, 256, 64, 16);
+
+    // Background pill
+    tagCtx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    tagCtx.roundRect(0, 0, 280, 70, 16);
     tagCtx.fill();
     tagCtx.strokeStyle = '#06b6d4';
     tagCtx.lineWidth = 3;
     tagCtx.stroke();
 
+    // Label with Icon
     tagCtx.fillStyle = '#ffffff';
-    tagCtx.font = 'bold 24px system-ui';
-    tagCtx.fillText(`${detectedObj.label}`, 16, 32);
+    tagCtx.font = 'bold 22px system-ui';
+    tagCtx.fillText(`${detectedObj.icon || '📦'} ${detectedObj.label}`, 16, 32);
 
+    // Subtitle Dimensions & Confidence
     tagCtx.fillStyle = '#22d3ee';
-    tagCtx.font = '16px monospace';
-    tagCtx.fillText(`${detectedObj.score}% • ${width}m×${depth}m`, 16, 52);
+    tagCtx.font = 'bold 15px monospace';
+    tagCtx.fillText(`${width}m × ${depth}m × ${height}m`, 16, 54);
 
     const tagTex = new THREE.CanvasTexture(tagCanvas);
     const tagMat = new THREE.SpriteMaterial({ map: tagTex, transparent: true });
     const sprite = new THREE.Sprite(tagMat);
-    sprite.scale.set(0.9, 0.25, 1);
-    sprite.position.set(0, height + 0.25, 0);
+    sprite.scale.set(0.95, 0.26, 1);
+    sprite.position.set(0, height + 0.3, 0);
     group.add(sprite);
 
     group.position.set(pos.x, pos.y, pos.z);

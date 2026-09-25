@@ -4,6 +4,7 @@
  */
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import * as tf from '@tensorflow/tfjs';
+import { SpatialObjectManager } from './spatialObjectManager';
 
 export class AIVisionDetector {
   constructor() {
@@ -126,23 +127,26 @@ export class AIVisionDetector {
         // Fallback if video tainted
       }
 
+      const dims = SpatialObjectManager.getDimensionsForClass(pred.class, bw / bh);
+
       return {
         id: `ai_obj_${Date.now()}_${idx}`,
         class: pred.class,
-        label: AIVisionDetector.getLocalizedLabel(pred.class),
+        label: dims.label,
+        icon: dims.icon,
         score: Math.round(pred.score * 100),
         bbox: [bx, by, bw, bh],
         normBbox: [bx / vw, by / vh, bw / vw, bh / vh],
         depth: Number(depth.toFixed(2)),
         position3D: {
           x: Number(worldX.toFixed(2)),
-          y: Number(worldY.toFixed(2)),
+          y: 0, // Solidly placed on the floor
           z: Number(worldZ.toFixed(2))
         },
         size3D: {
-          width: Math.max(0.3, Number((bw / vw * depth).toFixed(2))),
-          height: Math.max(0.3, Number((bh / vh * depth).toFixed(2))),
-          depth: Math.max(0.3, Number((bw / vw * depth * 0.7).toFixed(2)))
+          width: dims.width,
+          height: dims.height,
+          depth: dims.depth
         },
         texture: textureDataUrl,
         timestamp: Date.now()
