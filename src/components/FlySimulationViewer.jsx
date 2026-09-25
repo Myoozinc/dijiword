@@ -26,7 +26,12 @@ import {
   Award,
   Wind,
   Rocket,
-  Beaker
+  Beaker,
+  Eye,
+  EyeOff,
+  Maximize2,
+  Minimize2,
+  Video
 } from 'lucide-react';
 import { 
   FlyConnectomeEngine, 
@@ -56,6 +61,23 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     targetY: 0,
     flyPhaseTimer: 0,
     flightSpeed: 0.038
+  });
+
+  // Live Fly Eye Viewport & Real-Time Compound Vision Analysis
+  const flyEyeContainerRef = useRef(null);
+  const flyEyeRendererRef = useRef(null);
+  const flyEyeCameraRef = useRef(null);
+  const lastYawRef = useRef(0);
+  const lastTelemetryTimeRef = useRef(0);
+  const [showEyeProjector, setShowEyeProjector] = useState(true);
+  const [eyeVisionFilter, setEyeVisionFilter] = useState('ommatidia'); // 'ommatidia' | 'flow' | 'raw'
+  const [isProjectorExpanded, setIsProjectorExpanded] = useState(false);
+  const [visualTelemetry, setVisualTelemetry] = useState({
+    opticalFlowHS: 0,
+    opticalFlowVS: 0,
+    expansionRate: 0,
+    detectedContrast: 78,
+    loomingAlert: false
   });
 
   // Mushroom Body Learning & Household Odor Olfactory Engine
@@ -313,6 +335,50 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     };
   }, []);
 
+  // 2.5 Initialize Live First-Person Compound Eye WebGL Viewport
+  useEffect(() => {
+    if (!showEyeProjector || !flyEyeContainerRef.current) return;
+    const container = flyEyeContainerRef.current;
+    const width = container.clientWidth || (isProjectorExpanded ? 640 : 360);
+    const height = container.clientHeight || (isProjectorExpanded ? 420 : 210);
+
+    const eyeCamera = new THREE.PerspectiveCamera(118, width / height, 0.05, 60);
+    flyEyeCameraRef.current = eyeCamera;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+    flyEyeRendererRef.current = renderer;
+
+    const handleResize = () => {
+      if (!flyEyeContainerRef.current || !flyEyeRendererRef.current || !flyEyeCameraRef.current) return;
+      const w = flyEyeContainerRef.current.clientWidth;
+      const h = flyEyeContainerRef.current.clientHeight;
+      if (w > 0 && h > 0) {
+        flyEyeCameraRef.current.aspect = w / h;
+        flyEyeCameraRef.current.updateProjectionMatrix();
+        flyEyeRendererRef.current.setSize(w, h);
+      }
+    };
+
+    const ro = new ResizeObserver(handleResize);
+    ro.observe(container);
+
+    return () => {
+      ro.disconnect();
+      if (flyEyeRendererRef.current && flyEyeRendererRef.current.domElement) {
+        flyEyeRendererRef.current.domElement.remove();
+      }
+      flyEyeRendererRef.current = null;
+      flyEyeCameraRef.current = null;
+    };
+  }, [showEyeProjector, isProjectorExpanded]);
+
   // 3. Main Animation Loop (Syncing Connectome with Fly Kinematics)
   useEffect(() => {
     let animId;
@@ -484,6 +550,48 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
         }
 
         flyRendererRef.current.render(flySceneRef.current, flyCameraRef.current);
+
+        // Render Real-Time Compound Eye First-Person Perspective (Optic Lobe)
+        if (showEyeProjector && flyEyeRendererRef.current && flyEyeCameraRef.current && flyModelRef.current) {
+          // Mount camera directly at the compound eyes (head position + offset)
+          const eyeLocalPos = new THREE.Vector3(0, 0.98, 1.16);
+          const eyeWorldPos = eyeLocalPos.clone().applyQuaternion(flyModelRef.current.quaternion).add(flyModelRef.current.position);
+
+          const forwardDir = new THREE.Vector3(0, 0, 1).applyQuaternion(flyModelRef.current.quaternion);
+          const gazeTarget = eyeWorldPos.clone().add(forwardDir.clone().multiplyScalar(4));
+
+          flyEyeCameraRef.current.position.copy(eyeWorldPos);
+          flyEyeCameraRef.current.lookAt(gazeTarget);
+
+          flyEyeRendererRef.current.render(flySceneRef.current, flyEyeCameraRef.current);
+
+          // Real-time Optic Lobe neural analysis (LPTC HS/VS, FoE, Looming detection)
+          if (time - lastTelemetryTimeRef.current > 0.08) {
+            lastTelemetryTimeRef.current = time;
+            const currentYaw = flyModelRef.current.rotation.y;
+            const yawDelta = currentYaw - (lastYawRef.current !== undefined ? lastYawRef.current : currentYaw);
+            lastYawRef.current = currentYaw;
+
+            const hsVal = Math.round(-yawDelta * 240); // Horizontal System (LPTC HS)
+            const vsVal = Math.round(flyModelRef.current.rotation.x * 90 + (isFlying ? -14 : 0)); // Vertical System (LPTC VS)
+            const forwardSpd = isFlying ? 0.038 : (firingRateHz / 4.2) * 0.016;
+            const expansion = Math.round(forwardSpd * 1800);
+
+            let loomingAlert = false;
+            if (foodBeaconRef.current) {
+              const dist = flyModelRef.current.position.distanceTo(foodBeaconRef.current.position);
+              if (dist < 1.4 && (isFlying || Math.abs(hsVal) > 20)) loomingAlert = true;
+            }
+
+            setVisualTelemetry({
+              opticalFlowHS: hsVal,
+              opticalFlowVS: vsVal,
+              expansionRate: expansion,
+              loomingAlert,
+              detectedContrast: Math.min(98, 70 + Math.abs(hsVal * 0.5))
+            });
+          }
+        }
       }
 
       animId = requestAnimationFrame(animate);
@@ -491,7 +599,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
 
     animId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animId);
-  }, [isRunning, firingRateHz, activeStimulus, selectedStimulusIdx, isFlying]);
+  }, [isRunning, firingRateHz, activeStimulus, selectedStimulusIdx, isFlying, showEyeProjector]);
 
   // Trigger virtual dopamine reward burst (as discussed in PDF)
   const triggerDopaminePulse = () => {
@@ -715,6 +823,19 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
           </button>
 
           <button
+            onClick={() => setShowEyeProjector(!showEyeProjector)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-lg transition active:scale-95 ${
+              showEyeProjector
+                ? 'bg-emerald-600 text-white ring-2 ring-emerald-400'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+            }`}
+            title="Pantalla proyectora de visión en tiempo real (Lóbulo Óptico de la Mosca)"
+          >
+            <Eye className="w-4 h-4 text-emerald-300" />
+            <span>{showEyeProjector ? '👁️ Visión Mosca ON' : '👁️ Visión Mosca OFF'}</span>
+          </button>
+
+          <button
             onClick={() => setShowDataModal(true)}
             className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 border border-cyan-500/30 flex items-center space-x-1"
           >
@@ -848,6 +969,254 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
         </div>
       </div>
 
+      {/* Live Fly Eye Projector Screen HUD (Floating Theater / PIP Screen) */}
+      {showEyeProjector && (
+        <div
+          className={`transition-all duration-300 z-40 flex flex-col ${
+            isProjectorExpanded
+              ? 'fixed inset-3 md:inset-8 bg-slate-950/95 backdrop-blur-2xl border-2 border-emerald-500/60 rounded-3xl shadow-[0_0_50px_rgba(16,185,129,0.3)] overflow-hidden'
+              : 'fixed bottom-16 sm:bottom-20 right-3 sm:right-4 w-[350px] sm:w-[390px] bg-slate-950/95 backdrop-blur-xl border border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden'
+          }`}
+        >
+          {/* Projector Header Bar */}
+          <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-900 border-b border-emerald-500/30">
+            <div className="flex items-center space-x-2">
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-400">
+                <Eye className="w-3.5 h-3.5 animate-pulse" />
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-emerald-400 tracking-wide flex items-center space-x-1.5">
+                  <span>PROYECTOR VISIÓN MOSCA</span>
+                  <span className="text-[8px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">118° FOV</span>
+                </div>
+                <div className="text-[9px] text-slate-400">Análisis Neuronal en Tiempo Real (Lóbulo Óptico)</div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-1">
+              {/* Expand / Minimize Button */}
+              <button
+                onClick={() => setIsProjectorExpanded(!isProjectorExpanded)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                title={isProjectorExpanded ? "Minimizar pantalla" : "Expandir pantalla a modo teatro"}
+              >
+                {isProjectorExpanded ? <Minimize2 className="w-3.5 h-3.5 text-cyan-400" /> : <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />}
+              </button>
+
+              {/* Close Projector */}
+              <button
+                onClick={() => setShowEyeProjector(false)}
+                className="p-1 rounded-lg hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 transition"
+                title="Cerrar proyector"
+              >
+                <EyeOff className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Selector Buttons Bar */}
+          <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-slate-800 text-[10px]">
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => setEyeVisionFilter('ommatidia')}
+                className={`px-2 py-0.5 rounded-md font-semibold transition flex items-center space-x-1 ${
+                  eyeVisionFilter === 'ommatidia'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+                title="Mosaico hexagonal de 750 ommatidias con espectro fotorreceptor (UV/Azul/Verde)"
+              >
+                <span>🐝 Ommatidias</span>
+              </button>
+              <button
+                onClick={() => setEyeVisionFilter('flow')}
+                className={`px-2 py-0.5 rounded-md font-semibold transition flex items-center space-x-1 ${
+                  eyeVisionFilter === 'flow'
+                    ? 'bg-cyan-600 text-white shadow'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+                title="Campo vectorial de flujo óptico calculado por neuronas LPTC de la placa lobular"
+              >
+                <span>🔄 Flujo Óptico</span>
+              </button>
+              <button
+                onClick={() => setEyeVisionFilter('raw')}
+                className={`px-2 py-0.5 rounded-md font-semibold transition flex items-center space-x-1 ${
+                  eyeVisionFilter === 'raw'
+                    ? 'bg-indigo-600 text-white shadow'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+                title="Visión gran angular limpia sin retículas"
+              >
+                <span>👁️ POV Puro</span>
+              </button>
+            </div>
+
+            <div className="text-[9px] font-mono text-emerald-400 flex items-center space-x-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              <span>&gt;250 Hz FUSIÓN</span>
+            </div>
+          </div>
+
+          {/* Projector Screen Video Canvas & Overlays */}
+          <div className={`relative w-full ${isProjectorExpanded ? 'flex-1 min-h-[380px]' : 'h-[210px]'} bg-black overflow-hidden select-none`}>
+            {/* 3D WebGL Canvas Container */}
+            <div ref={flyEyeContainerRef} className="w-full h-full" />
+
+            {/* Looming Collision Warning Banner */}
+            {visualTelemetry.loomingAlert && (
+              <div className="absolute top-2 inset-x-2 z-20 px-2.5 py-1 rounded-lg bg-rose-600/90 text-white text-[10px] font-bold flex items-center justify-between border border-rose-400 animate-pulse shadow-lg">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-xs">⚠️</span>
+                  <span>EXPANSIÓN ÓPTICA RÁPIDA (LOOMING): COLISIÓN INMINENTE</span>
+                </div>
+                <span className="font-mono text-[9px] bg-rose-950/80 px-1.5 py-0.5 rounded">Reflejo GF</span>
+              </div>
+            )}
+
+            {/* 1. Ommatidia Hexagonal Overlay Filter */}
+            {eyeVisionFilter === 'ommatidia' && (
+              <svg className="absolute inset-0 w-full h-full pointer-events-none z-10 opacity-70">
+                <defs>
+                  <pattern id="hex-lattice" width="24" height="41.57" patternUnits="userSpaceOnUse">
+                    <path
+                      d="M12 0 L24 6.93 L24 20.78 L12 27.71 L0 20.78 L0 6.93 Z M0 27.71 L12 34.64 L12 48.49 L0 55.43 L-12 48.49 L-12 34.64 Z M24 27.71 L36 34.64 L36 48.49 L24 55.43 L12 48.49 L12 34.64 Z"
+                      stroke="rgba(16, 185, 129, 0.4)"
+                      strokeWidth="0.8"
+                      fill="rgba(6, 78, 59, 0.08)"
+                    />
+                  </pattern>
+                  <radialGradient id="eye-vignette" cx="50%" cy="50%" r="50%">
+                    <stop offset="65%" stopColor="transparent" />
+                    <stop offset="90%" stopColor="rgba(6, 9, 19, 0.6)" />
+                    <stop offset="100%" stopColor="rgba(6, 9, 19, 0.95)" />
+                  </radialGradient>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#hex-lattice)" />
+                <rect width="100%" height="100%" fill="url(#eye-vignette)" />
+                {/* Central Gaze Crosshairs */}
+                <circle cx="50%" cy="50%" r="16" fill="none" stroke="rgba(52, 211, 153, 0.7)" strokeWidth="1" strokeDasharray="3,3" />
+                <line x1="50%" y1="42%" x2="50%" y2="58%" stroke="rgba(52, 211, 153, 0.7)" strokeWidth="1" />
+                <line x1="42%" y1="50%" x2="58%" y2="50%" stroke="rgba(52, 211, 153, 0.7)" strokeWidth="1" />
+              </svg>
+            )}
+
+            {/* 2. Optical Flow & LPTC Vector Field Overlay Filter */}
+            {eyeVisionFilter === 'flow' && (
+              <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-2">
+                {/* Central Focus of Expansion (FoE) Target */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="relative flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full border border-cyan-400/60 border-dashed animate-spin" style={{ animationDuration: '8s' }} />
+                    <div className="w-2 h-2 rounded-full bg-cyan-400 absolute" />
+                    <span className="absolute -bottom-4 text-[8px] font-mono text-cyan-300 font-bold tracking-tight">FoE (Foco Expansión)</span>
+                  </div>
+                </div>
+
+                {/* Dynamic Vector Arrows Matrix */}
+                {[
+                  { x: 25, y: 30, dx: -0.6, dy: -0.4 },
+                  { x: 50, y: 22, dx: 0.0, dy: -0.8 },
+                  { x: 75, y: 30, dx: 0.6, dy: -0.4 },
+                  { x: 18, y: 50, dx: -0.9, dy: 0.0 },
+                  { x: 82, y: 50, dx: 0.9, dy: 0.0 },
+                  { x: 25, y: 70, dx: -0.6, dy: 0.4 },
+                  { x: 50, y: 78, dx: 0.0, dy: 0.8 },
+                  { x: 75, y: 70, dx: 0.6, dy: 0.4 },
+                ].map((pt, idx) => {
+                  const hsShift = -(visualTelemetry.opticalFlowHS || 0) * 0.12;
+                  const vsShift = -(visualTelemetry.opticalFlowVS || 0) * 0.12;
+                  const expShiftX = pt.dx * (visualTelemetry.expansionRate || 30) * 0.35;
+                  const expShiftY = pt.dy * (visualTelemetry.expansionRate || 30) * 0.35;
+                  const totalVx = hsShift + expShiftX;
+                  const totalVy = vsShift + expShiftY;
+                  const len = Math.min(32, Math.max(10, Math.sqrt(totalVx * totalVx + totalVy * totalVy)));
+                  const angle = Math.atan2(totalVy, totalVx);
+                  const angleDeg = (angle * 180) / Math.PI;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="absolute pointer-events-none flex items-center justify-center"
+                      style={{
+                        left: `${pt.x}%`,
+                        top: `${pt.y}%`,
+                        transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`
+                      }}
+                    >
+                      <div
+                        className={`h-[2px] rounded-full transition-all duration-75 flex items-center justify-end ${
+                          Math.abs(visualTelemetry.opticalFlowHS) > 25 ? 'bg-amber-400' : 'bg-cyan-400'
+                        }`}
+                        style={{ width: `${len}px` }}
+                      >
+                        <div
+                          className="w-0 h-0 border-t-[3px] border-t-transparent border-b-[3px] border-b-transparent border-l-[6px]"
+                          style={{
+                            borderLeftColor: Math.abs(visualTelemetry.opticalFlowHS) > 25 ? '#fbbf24' : '#38bdf8'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Real-time Compass & Pitch Heading overlay */}
+            <div className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded bg-black/60 backdrop-blur-md text-[9px] font-mono text-cyan-300 border border-cyan-500/20">
+              RUMBO: {flyHeadingAngle}° · {isFlying ? 'ELEVACIÓN 3D' : 'RASANTE SUELO'}
+            </div>
+          </div>
+
+          {/* Projector Telemetry Deck (Optic Lobe Circuit Readouts) */}
+          <div className="p-2.5 bg-slate-950 border-t border-emerald-500/30">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center font-mono">
+              {/* LPTC HS Cells */}
+              <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                <div className="text-[8px] text-slate-400 font-sans truncate">LPTC Células HS</div>
+                <div className={`text-xs font-bold ${Math.abs(visualTelemetry.opticalFlowHS) > 20 ? 'text-amber-400' : 'text-cyan-400'}`}>
+                  {visualTelemetry.opticalFlowHS > 0 ? `+${visualTelemetry.opticalFlowHS}` : visualTelemetry.opticalFlowHS} °/s
+                </div>
+                <div className="text-[7px] text-slate-400">Giro / Guiñada</div>
+              </div>
+
+              {/* LPTC VS Cells */}
+              <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                <div className="text-[8px] text-slate-400 font-sans truncate">LPTC Células VS</div>
+                <div className="text-xs font-bold text-emerald-400">
+                  {visualTelemetry.opticalFlowVS > 0 ? `+${visualTelemetry.opticalFlowVS}` : visualTelemetry.opticalFlowVS} °/s
+                </div>
+                <div className="text-[7px] text-slate-400">Flujo Vertical</div>
+              </div>
+
+              {/* Focus of Expansion / Looming */}
+              <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                <div className="text-[8px] text-slate-400 font-sans truncate">Expansión (FoE)</div>
+                <div className={`text-xs font-bold ${visualTelemetry.loomingAlert ? 'text-rose-400 animate-pulse' : 'text-purple-400'}`}>
+                  {visualTelemetry.expansionRate}% / s
+                </div>
+                <div className="text-[7px] text-slate-400">Aproximación</div>
+              </div>
+
+              {/* Lamina L1/L2 ON/OFF contrast */}
+              <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                <div className="text-[8px] text-slate-400 font-sans truncate">Lámina L1/L2</div>
+                <div className="text-xs font-bold text-yellow-400">
+                  {visualTelemetry.detectedContrast}%
+                </div>
+                <div className="text-[7px] text-slate-400">ON / OFF Dinámico</div>
+              </div>
+            </div>
+
+            <div className="mt-1.5 flex items-center justify-between text-[8px] text-slate-400 px-1 font-mono">
+              <span>Fotorreceptores: R1-R6 (480nm) · R7 UV (345nm) · R8 (508nm)</span>
+              <span className="text-emerald-400 font-bold">750 OMMATIDIAS/OJO</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom Interactive Dashboard & Telemetry */}
       <footer className="relative z-30 p-3 bg-slate-950/90 backdrop-blur-lg border-t border-cyan-500/20 flex flex-wrap items-center justify-between gap-4">
         {/* Locomotion and Neural Controls */}
@@ -873,6 +1242,19 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
           >
             <Rocket className="w-3.5 h-3.5" />
             <span>{isFlying ? 'Aterrizar' : 'Volar 3D'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowEyeProjector(!showEyeProjector)}
+            className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition border ${
+              showEyeProjector
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-800'
+            }`}
+            title="Activar o desactivar pantalla proyectora de visión en primera persona de la mosca"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>{showEyeProjector ? 'Ocultar Proyector' : '👁️ Ver Visión'}</span>
           </button>
 
           <div className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
