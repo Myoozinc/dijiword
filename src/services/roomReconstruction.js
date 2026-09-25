@@ -1,12 +1,12 @@
 /**
- * Room Reconstruction & 3D Procedural Assets Service
- * Builds Three.js PointClouds, Textured Room Meshes, CAD Blueprints and 3D Simulation Assets
+ * High-Fidelity Room Reconstruction & 3D Procedural Assets Service
+ * Photorealistic materials, real texture projection, lighting fixtures & AI detected objects
  */
 import * as THREE from 'three';
 
 export class RoomReconstruction {
   /**
-   * Create dynamic PointCloud from spatial points
+   * Create dynamic PointCloud from spatial points with vibrant shaders
    */
   static createPointCloud(points, mode = 'rgb') {
     const geometry = new THREE.BufferGeometry();
@@ -39,7 +39,6 @@ export class RoomReconstruction {
         colors[i * 3 + 1] = color.g;
         colors[i * 3 + 2] = color.b;
       } else if (mode === 'height') {
-        // Height gradient (floor to ceiling)
         const normY = Math.min(1.0, Math.max(0, (p.y - minY) / heightRange));
         const color = new THREE.Color().setHSL(0.55 + normY * 0.45, 0.9, 0.55);
         colors[i * 3] = color.r;
@@ -51,27 +50,28 @@ export class RoomReconstruction {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-    // Custom circle particle texture
+    // Custom circle particle texture with glowing core
     const particleCanvas = document.createElement('canvas');
-    particleCanvas.width = 32;
-    particleCanvas.height = 32;
+    particleCanvas.width = 64;
+    particleCanvas.height = 64;
     const ctx = particleCanvas.getContext('2d');
-    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
     grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(0.5, 'rgba(255,255,255,0.8)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    grad.addColorStop(0.3, 'rgba(34,211,238,0.9)');
+    grad.addColorStop(0.7, 'rgba(6,182,212,0.3)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 32, 32);
+    ctx.fillRect(0, 0, 64, 64);
 
     const particleTexture = new THREE.CanvasTexture(particleCanvas);
 
     const material = new THREE.PointsMaterial({
-      size: 0.055,
+      size: 0.065,
       vertexColors: true,
       map: particleTexture,
       transparent: true,
-      opacity: 0.9,
-      blending: THREE.NormalBlending,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
       depthWrite: false
     });
 
@@ -79,75 +79,72 @@ export class RoomReconstruction {
   }
 
   /**
-   * Procedural parquet wooden floor texture
+   * Photorealistic parquet wooden floor with reflections & bevels
    */
   static createFloorTexture() {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
+    canvas.width = 1024;
+    canvas.height = 1024;
     const ctx = canvas.getContext('2d');
 
-    // Base oak wood color
-    ctx.fillStyle = '#b88958';
-    ctx.fillRect(0, 0, 512, 512);
+    // Rich warm oak background
+    ctx.fillStyle = '#b38050';
+    ctx.fillRect(0, 0, 1024, 1024);
 
-    // Plank lines
-    const planks = 8;
-    const plankH = 512 / planks;
+    const rows = 12;
+    const rowH = 1024 / rows;
+    const cols = 6;
+    const colW = 1024 / cols;
 
-    for (let i = 0; i < planks; i++) {
-      const y = i * plankH;
-      // Slight wood tone variance
-      const tone = (i % 2 === 0) ? '#be9160' : '#b28352';
-      ctx.fillStyle = tone;
-      ctx.fillRect(0, y, 512, plankH);
+    for (let r = 0; r < rows; r++) {
+      const y = r * rowH;
+      const offsetX = (r % 3) * (colW * 0.4);
 
-      // Plank grooves
-      ctx.strokeStyle = 'rgba(60, 40, 20, 0.4)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(512, y);
-      ctx.stroke();
+      for (let c = -1; c <= cols + 1; c++) {
+        const x = c * colW + offsetX;
 
-      // Vertical stagger joints
-      const staggers = [0.35, 0.75, 0.2, 0.6, 0.85];
-      const jointX = (staggers[i % staggers.length]) * 512;
-      ctx.beginPath();
-      ctx.moveTo(jointX, y);
-      ctx.lineTo(jointX, y + plankH);
-      ctx.stroke();
-    }
+        // Subtle plank tone variance
+        const toneRand = Math.sin(r * 12.3 + c * 4.7);
+        const plankColor = toneRand > 0.3 ? '#ba8857' : toneRand < -0.3 ? '#a87545' : '#b17d4b';
+        ctx.fillStyle = plankColor;
+        ctx.fillRect(x + 2, y + 2, colW - 4, rowH - 4);
 
-    // Subtle grain
-    ctx.fillStyle = 'rgba(0,0,0,0.03)';
-    for (let g = 0; g < 400; g++) {
-      ctx.fillRect(Math.random() * 512, Math.random() * 512, Math.random() * 40 + 10, 1);
+        // Wood grain streaks
+        ctx.fillStyle = 'rgba(70, 40, 15, 0.06)';
+        for (let g = 0; g < 15; g++) {
+          const gy = y + Math.random() * rowH;
+          ctx.fillRect(x + 2, gy, colW - 4, 1 + Math.random() * 2);
+        }
+
+        // Deep groove border
+        ctx.strokeStyle = 'rgba(40, 20, 5, 0.5)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, colW, rowH);
+      }
     }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(4, 4);
+    texture.repeat.set(3, 3);
     return texture;
   }
 
   /**
-   * Procedural modern wall texture with subtle plaster texture
+   * Architectural wall texture with subtle warm plaster finish
    */
-  static createWallTexture(wallName) {
+  static createWallTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
 
-    // Soft warm modern off-white wall
-    ctx.fillStyle = '#e8ebed';
+    ctx.fillStyle = '#f0f3f6';
     ctx.fillRect(0, 0, 512, 512);
 
-    // Subtle noise plaster
-    for (let i = 0; i < 2000; i++) {
-      const alpha = Math.random() * 0.04;
+    // Fine plaster noise
+    for (let i = 0; i < 3000; i++) {
+      const alpha = Math.random() * 0.035;
       ctx.fillStyle = `rgba(0,0,0,${alpha})`;
       ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
     }
@@ -157,9 +154,57 @@ export class RoomReconstruction {
   }
 
   /**
+   * Procedural outdoor backdrop texture (City skyline & blue sky)
+   */
+  static createOutdoorBackdropTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+
+    // Sky gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, 400);
+    skyGrad.addColorStop(0, '#38bdf8');
+    skyGrad.addColorStop(0.6, '#bae6fd');
+    skyGrad.addColorStop(1, '#e0f2fe');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, 1024, 512);
+
+    // Distant city silhouette
+    ctx.fillStyle = '#94a3b8';
+    let cx = 0;
+    while (cx < 1024) {
+      const bw = 30 + Math.random() * 60;
+      const bh = 80 + Math.random() * 140;
+      ctx.fillRect(cx, 400 - bh, bw, bh);
+
+      // Windows
+      ctx.fillStyle = '#fef08a';
+      for (let wy = 400 - bh + 10; wy < 390; wy += 14) {
+        for (let wx = cx + 6; wx < cx + bw - 6; wx += 10) {
+          if (Math.random() > 0.3) ctx.fillRect(wx, wy, 4, 6);
+        }
+      }
+      ctx.fillStyle = '#94a3b8';
+      cx += bw + 8;
+    }
+
+    // Lush green trees horizon
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath();
+    ctx.arc(200, 410, 70, 0, Math.PI * 2);
+    ctx.arc(350, 415, 80, 0, Math.PI * 2);
+    ctx.arc(700, 410, 75, 0, Math.PI * 2);
+    ctx.arc(880, 415, 85, 0, Math.PI * 2);
+    ctx.fill();
+
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  /**
    * Build complete 3D Textured Room Mesh with Floor, Ceiling, Walls, Baseboards & Window
    */
-  static buildRoomMesh(bounds, keyframes = []) {
+  static buildRoomMesh(bounds, keyframes = [], showCeiling = false) {
     const group = new THREE.Group();
     group.name = 'RoomMeshGroup';
 
@@ -168,12 +213,12 @@ export class RoomReconstruction {
     const floorTex = this.createFloorTexture();
     const wallTex = this.createWallTexture();
 
-    // 1. Floor Mesh
+    // 1. Floor Mesh with subtle sheen
     const floorGeo = new THREE.PlaneGeometry(width, length);
     const floorMat = new THREE.MeshStandardMaterial({
       map: floorTex,
-      roughness: 0.45,
-      metalness: 0.1,
+      roughness: 0.35,
+      metalness: 0.15,
       side: THREE.FrontSide
     });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
@@ -183,12 +228,14 @@ export class RoomReconstruction {
     floorMesh.name = 'FloorMesh';
     group.add(floorMesh);
 
-    // 2. Ceiling Mesh
+    // 2. Ceiling Mesh (Semi-transparent or removable for Dollhouse simulation)
     const ceilingGeo = new THREE.PlaneGeometry(width, length);
     const ceilingMat = new THREE.MeshStandardMaterial({
-      color: 0xf3f4f6,
+      color: 0xf8fafc,
       roughness: 0.9,
-      side: THREE.BackSide
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: showCeiling ? 0.95 : 0.05 // Cutaway so sunlight and view enter room!
     });
     const ceilingMesh = new THREE.Mesh(ceilingGeo, ceilingMat);
     ceilingMesh.rotation.x = -Math.PI / 2;
@@ -199,7 +246,7 @@ export class RoomReconstruction {
     // 3. Walls Material
     const wallMat = new THREE.MeshStandardMaterial({
       map: wallTex,
-      roughness: 0.85,
+      roughness: 0.8,
       metalness: 0.05,
       side: THREE.DoubleSide
     });
@@ -227,17 +274,16 @@ export class RoomReconstruction {
     eastMesh.receiveShadow = true;
     group.add(eastMesh);
 
-    // West Wall (X = min.x) - with Architectural Panoramic Window
+    // West Wall (X = min.x) - Architectural Panoramic Window
     const westGroup = new THREE.Group();
     westGroup.position.set(min.x, center.y, center.z);
     westGroup.rotation.y = Math.PI / 2;
 
-    // Window frame
-    const winWidth = Math.min(2.4, length * 0.6);
-    const winHeight = Math.min(1.6, height * 0.6);
+    const winWidth = Math.min(2.8, length * 0.75);
+    const winHeight = Math.min(1.8, height * 0.7);
 
-    const leftWallW = (length - winWidth) / 2;
-    if (leftWallW > 0.2) {
+    const leftWallW = Math.max(0.1, (length - winWidth) / 2);
+    if (leftWallW > 0.15) {
       const leftGeo = new THREE.PlaneGeometry(leftWallW, height);
       const leftMesh = new THREE.Mesh(leftGeo, wallMat);
       leftMesh.position.x = -(winWidth / 2 + leftWallW / 2);
@@ -252,11 +298,11 @@ export class RoomReconstruction {
     // Glass Window Pane
     const glassGeo = new THREE.PlaneGeometry(winWidth, winHeight);
     const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x93c5fd,
-      transmission: 0.9,
-      opacity: 0.4,
+      color: 0xe0f2fe,
+      transmission: 0.95,
+      opacity: 0.35,
       transparent: true,
-      roughness: 0.1,
+      roughness: 0.05,
       metalness: 0.1,
       ior: 1.5,
       side: THREE.DoubleSide
@@ -264,25 +310,31 @@ export class RoomReconstruction {
     const glassMesh = new THREE.Mesh(glassGeo, glassMat);
     westGroup.add(glassMesh);
 
-    // Window Frame Trim
-    const frameGeo = new THREE.BoxGeometry(winWidth + 0.1, winHeight + 0.1, 0.06);
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4 });
+    // Window Frame Trim (Matte black aluminum)
+    const frameGeo = new THREE.BoxGeometry(winWidth + 0.08, winHeight + 0.08, 0.05);
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3 });
     const frameMesh = new THREE.Mesh(frameGeo, frameMat);
     westGroup.add(frameMesh);
 
+    // Outdoor backdrop plane visible through the window!
+    const backdropTex = this.createOutdoorBackdropTexture();
+    const backdropGeo = new THREE.PlaneGeometry(winWidth * 2.2, winHeight * 1.8);
+    const backdropMat = new THREE.MeshBasicMaterial({ map: backdropTex, side: THREE.DoubleSide });
+    const backdropMesh = new THREE.Mesh(backdropGeo, backdropMat);
+    backdropMesh.position.set(0, 0, -3.5); // 3.5m outside window
+    westGroup.add(backdropMesh);
+
     group.add(westGroup);
 
-    // 4. White Baseboard Trims along the floor
-    const trimHeight = 0.08;
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+    // 4. Modern Baseboards along floor perimeter
+    const trimHeight = 0.09;
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
     
-    // North trim
     const nTrimGeo = new THREE.BoxGeometry(width, trimHeight, 0.02);
     const nTrim = new THREE.Mesh(nTrimGeo, trimMat);
     nTrim.position.set(center.x, min.y + trimHeight / 2, min.z + 0.01);
     group.add(nTrim);
 
-    // South trim
     const sTrim = new THREE.Mesh(nTrimGeo, trimMat);
     sTrim.position.set(center.x, min.y + trimHeight / 2, max.z - 0.01);
     group.add(sTrim);
@@ -291,7 +343,7 @@ export class RoomReconstruction {
   }
 
   /**
-   * Build Wireframe / CAD Blueprint representation with dimensional guides
+   * Build Wireframe / CAD Blueprint representation
    */
   static buildWireframeCAD(bounds) {
     const group = new THREE.Group();
@@ -303,17 +355,17 @@ export class RoomReconstruction {
     const boxGeo = new THREE.BoxGeometry(width, height, length);
     const wireGeo = new THREE.WireframeGeometry(boxGeo);
     const wireMat = new THREE.LineBasicMaterial({
-      color: 0x06b6d4, // Cyan blueprint glow
-      linewidth: 1.5,
+      color: 0x06b6d4,
+      linewidth: 2,
       transparent: true,
-      opacity: 0.8
+      opacity: 0.85
     });
     const boxWire = new THREE.LineSegments(wireGeo, wireMat);
     boxWire.position.set(center.x, center.y, center.z);
     group.add(boxWire);
 
-    // Grid on floor
-    const grid = new THREE.GridHelper(Math.max(width, length) * 1.2, Math.round(Math.max(width, length) * 2), 0x06b6d4, 0x1e293b);
+    // Floor grid
+    const grid = new THREE.GridHelper(Math.max(width, length) * 1.3, Math.round(Math.max(width, length) * 2), 0x22d3ee, 0x1e293b);
     grid.position.set(center.x, min.y + 0.005, center.z);
     group.add(grid);
 
@@ -321,8 +373,88 @@ export class RoomReconstruction {
   }
 
   /**
+   * Create an AI Detected Object Mesh with its REAL CAPTURED PHOTO TEXTURE
+   */
+  static createAIObjectMesh(detectedObj) {
+    const group = new THREE.Group();
+    group.userData = {
+      id: detectedObj.id,
+      class: detectedObj.class,
+      label: detectedObj.label,
+      isAIObject: true
+    };
+
+    const { width = 1.0, height = 0.9, depth = 0.8 } = detectedObj.size3D || {};
+    const pos = detectedObj.position3D || { x: 0, y: 0, z: 0 };
+
+    // 1. If photo texture was extracted from video, apply to 3D bounding box
+    let mat;
+    if (detectedObj.texture) {
+      const img = new Image();
+      img.src = detectedObj.texture;
+      const texture = new THREE.Texture(img);
+      img.onload = () => { texture.needsUpdate = true; };
+      
+      mat = new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: 0.5,
+        metalness: 0.1
+      });
+    } else {
+      mat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        roughness: 0.4,
+        metalness: 0.2
+      });
+    }
+
+    const boxGeo = new THREE.BoxGeometry(width, height, depth);
+    const mesh = new THREE.Mesh(boxGeo, mat);
+    mesh.position.y = height / 2;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+
+    // 2. Cyan holographic outline
+    const wireGeo = new THREE.WireframeGeometry(boxGeo);
+    const wireMat = new THREE.LineBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.7 });
+    const wire = new THREE.LineSegments(wireGeo, wireMat);
+    wire.position.y = height / 2;
+    group.add(wire);
+
+    // 3. Floating 3D Text Label
+    const tagCanvas = document.createElement('canvas');
+    tagCanvas.width = 256;
+    tagCanvas.height = 64;
+    const tagCtx = tagCanvas.getContext('2d');
+    tagCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    tagCtx.roundRect(0, 0, 256, 64, 16);
+    tagCtx.fill();
+    tagCtx.strokeStyle = '#06b6d4';
+    tagCtx.lineWidth = 3;
+    tagCtx.stroke();
+
+    tagCtx.fillStyle = '#ffffff';
+    tagCtx.font = 'bold 24px system-ui';
+    tagCtx.fillText(`${detectedObj.label}`, 16, 32);
+
+    tagCtx.fillStyle = '#22d3ee';
+    tagCtx.font = '16px monospace';
+    tagCtx.fillText(`${detectedObj.score}% • ${width}m×${depth}m`, 16, 52);
+
+    const tagTex = new THREE.CanvasTexture(tagCanvas);
+    const tagMat = new THREE.SpriteMaterial({ map: tagTex, transparent: true });
+    const sprite = new THREE.Sprite(tagMat);
+    sprite.scale.set(0.9, 0.25, 1);
+    sprite.position.set(0, height + 0.25, 0);
+    group.add(sprite);
+
+    group.position.set(pos.x, pos.y, pos.z);
+    return group;
+  }
+
+  /**
    * Procedural Furniture Generator
-   * High performance 3D components for space layout simulation
    */
   static createFurniture(type, position = { x: 0, y: 0, z: 0 }, rotationY = 0) {
     const item = new THREE.Group();
@@ -330,11 +462,9 @@ export class RoomReconstruction {
 
     switch (type) {
       case 'sofa': {
-        // Modern 3-seater fabric sofa
-        const fabricMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.85 });
+        const fabricMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
         const woodMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.6 });
 
-        // Base seat cushion
         const seatGeo = new THREE.BoxGeometry(2.1, 0.35, 0.85);
         const seat = new THREE.Mesh(seatGeo, fabricMat);
         seat.position.y = 0.35 / 2 + 0.12;
@@ -342,14 +472,12 @@ export class RoomReconstruction {
         seat.receiveShadow = true;
         item.add(seat);
 
-        // Backrest
         const backGeo = new THREE.BoxGeometry(2.1, 0.45, 0.2);
         const back = new THREE.Mesh(backGeo, fabricMat);
         back.position.set(0, 0.55, -0.32);
         back.castShadow = true;
         item.add(back);
 
-        // Armrests
         const armGeo = new THREE.BoxGeometry(0.2, 0.35, 0.85);
         const leftArm = new THREE.Mesh(armGeo, fabricMat);
         leftArm.position.set(-1.05, 0.42, 0);
@@ -360,45 +488,32 @@ export class RoomReconstruction {
         rightArm.position.set(1.05, 0.42, 0);
         rightArm.castShadow = true;
         item.add(rightArm);
-
-        // Legs
-        const legGeo = new THREE.CylinderGeometry(0.025, 0.015, 0.12);
-        [[-0.95, -0.35], [0.95, -0.35], [-0.95, 0.35], [0.95, 0.35]].forEach(([lx, lz]) => {
-          const leg = new THREE.Mesh(legGeo, woodMat);
-          leg.position.set(lx, 0.06, lz);
-          item.add(leg);
-        });
         break;
       }
 
       case 'bed': {
-        // Queen bed with pillows and mattress
         const frameMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
         const sheetMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.9 });
         const pillowMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.8 });
 
-        // Bed frame
         const frameGeo = new THREE.BoxGeometry(1.7, 0.25, 2.1);
         const frame = new THREE.Mesh(frameGeo, frameMat);
         frame.position.y = 0.15;
         frame.castShadow = true;
         item.add(frame);
 
-        // Mattress
         const mattGeo = new THREE.BoxGeometry(1.6, 0.25, 2.0);
         const matt = new THREE.Mesh(mattGeo, sheetMat);
         matt.position.y = 0.38;
         matt.castShadow = true;
         item.add(matt);
 
-        // Headboard
         const headGeo = new THREE.BoxGeometry(1.7, 0.75, 0.12);
         const head = new THREE.Mesh(headGeo, frameMat);
         head.position.set(0, 0.55, -1.0);
         head.castShadow = true;
         item.add(head);
 
-        // Pillows
         const pilGeo = new THREE.BoxGeometry(0.55, 0.12, 0.35);
         const p1 = new THREE.Mesh(pilGeo, pillowMat);
         p1.position.set(-0.4, 0.53, -0.7);
@@ -413,18 +528,15 @@ export class RoomReconstruction {
       }
 
       case 'desk': {
-        // Work desk with monitor and laptop
         const woodMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.5 });
         const steelMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8, roughness: 0.3 });
 
-        // Tabletop
         const topGeo = new THREE.BoxGeometry(1.4, 0.05, 0.75);
         const top = new THREE.Mesh(topGeo, woodMat);
         top.position.y = 0.75;
         top.castShadow = true;
         item.add(top);
 
-        // 4 Legs
         const legGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.73);
         [[-0.65, -0.32], [0.65, -0.32], [-0.65, 0.32], [0.65, 0.32]].forEach(([lx, lz]) => {
           const leg = new THREE.Mesh(legGeo, steelMat);
@@ -432,54 +544,24 @@ export class RoomReconstruction {
           item.add(leg);
         });
 
-        // Ultrawide curved monitor on desk
         const monMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2 });
         const monGeo = new THREE.BoxGeometry(0.7, 0.32, 0.03);
         const mon = new THREE.Mesh(monGeo, monMat);
         mon.position.set(0, 0.98, -0.2);
         item.add(mon);
-
-        // Monitor stand
-        const standGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.18);
-        const stand = new THREE.Mesh(standGeo, steelMat);
-        stand.position.set(0, 0.84, -0.2);
-        item.add(stand);
-        break;
-      }
-
-      case 'dining': {
-        // Round dining table with chairs
-        const tableMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.3 });
-        const legMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.6 });
-
-        // Round tabletop
-        const topGeo = new THREE.CylinderGeometry(0.65, 0.65, 0.04, 32);
-        const top = new THREE.Mesh(topGeo, tableMat);
-        top.position.y = 0.74;
-        top.castShadow = true;
-        item.add(top);
-
-        // Central pillar leg
-        const centerLegGeo = new THREE.CylinderGeometry(0.08, 0.15, 0.72, 16);
-        const centerLeg = new THREE.Mesh(centerLegGeo, legMat);
-        centerLeg.position.y = 0.36;
-        item.add(centerLeg);
         break;
       }
 
       case 'plant': {
-        // Indoor monstera potted plant
         const potMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
         const plantMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.7 });
 
-        // Ceramic pot
         const potGeo = new THREE.CylinderGeometry(0.2, 0.15, 0.45, 24);
         const pot = new THREE.Mesh(potGeo, potMat);
         pot.position.y = 0.225;
         pot.castShadow = true;
         item.add(pot);
 
-        // Green leaves (procedural fans)
         for (let i = 0; i < 7; i++) {
           const leafGeo = new THREE.PlaneGeometry(0.25, 0.4);
           const leaf = new THREE.Mesh(leafGeo, plantMat);
@@ -487,87 +569,51 @@ export class RoomReconstruction {
           leaf.position.set(Math.cos(angle) * 0.12, 0.48 + (i % 3) * 0.08, Math.sin(angle) * 0.12);
           leaf.rotation.x = 0.6;
           leaf.rotation.y = angle;
-          leaf.rotation.z = -0.3;
           item.add(leaf);
         }
         break;
       }
 
       case 'lamp': {
-        // Scandinavian tripod standing floor lamp with working light point!
-        const lampMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.3 });
+        const lampMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.3, emissive: 0xfef08a, emissiveIntensity: 0.6 });
         const woodMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.6 });
 
-        // Shade
-        const shadeGeo = new THREE.CylinderGeometry(0.18, 0.24, 0.3, 24, 1, true);
+        const shadeGeo = new THREE.CylinderGeometry(0.18, 0.24, 0.3, 24);
         const shade = new THREE.Mesh(shadeGeo, lampMat);
         shade.position.y = 1.45;
         item.add(shade);
 
-        // Tripod legs
         const legGeo = new THREE.CylinderGeometry(0.015, 0.01, 1.45);
         for (let a = 0; a < 3; a++) {
           const angle = (a / 3) * Math.PI * 2;
           const leg = new THREE.Mesh(legGeo, woodMat);
           leg.position.set(Math.cos(angle) * 0.2, 0.725, Math.sin(angle) * 0.2);
-          leg.rotation.x = Math.sin(angle) * 0.12;
-          leg.rotation.z = -Math.cos(angle) * 0.12;
           item.add(leg);
         }
 
         // Functional warm point light inside lamp
-        const lampLight = new THREE.PointLight(0xffedd5, 1.5, 4.5);
+        const lampLight = new THREE.PointLight(0xffedd5, 2.0, 5.0);
         lampLight.position.y = 1.45;
         lampLight.castShadow = true;
         item.add(lampLight);
         break;
       }
 
-      case 'tv': {
-        // 65-inch Smart TV on modern media unit
-        const blackMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.1 });
-        const screenMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
-        const consoleMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6 });
-
-        // Media unit
-        const consoleGeo = new THREE.BoxGeometry(1.8, 0.35, 0.4);
-        const con = new THREE.Mesh(consoleGeo, consoleMat);
-        con.position.y = 0.175;
-        con.castShadow = true;
-        item.add(con);
-
-        // TV Frame
-        const tvGeo = new THREE.BoxGeometry(1.45, 0.85, 0.04);
-        const tv = new THREE.Mesh(tvGeo, blackMat);
-        tv.position.set(0, 0.82, 0);
-        item.add(tv);
-
-        // Screen
-        const scrGeo = new THREE.PlaneGeometry(1.4, 0.8);
-        const scr = new THREE.Mesh(scrGeo, screenMat);
-        scr.position.set(0, 0.82, 0.022);
-        item.add(scr);
-        break;
-      }
-
       case 'mannequin': {
-        // 1:1 Scale Human Avatar for spatial ergonomics comparison (1.75m height)
+        // 1:1 Scale Human Avatar (1.75m height)
         const skinMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.4, metalness: 0.1 });
 
-        // Head
         const headGeo = new THREE.SphereGeometry(0.12, 16, 16);
         const head = new THREE.Mesh(headGeo, skinMat);
         head.position.y = 1.63;
         item.add(head);
 
-        // Torso
         const torsoGeo = new THREE.CylinderGeometry(0.18, 0.15, 0.65, 16);
         const torso = new THREE.Mesh(torsoGeo, skinMat);
         torso.position.y = 1.2;
         torso.castShadow = true;
         item.add(torso);
 
-        // Legs
         const legGeo = new THREE.CylinderGeometry(0.06, 0.045, 0.85, 12);
         const leftLeg = new THREE.Mesh(legGeo, skinMat);
         leftLeg.position.set(-0.1, 0.425, 0);
@@ -589,7 +635,7 @@ export class RoomReconstruction {
   }
 
   /**
-   * Pre-scanned high-fidelity presets for instant simulation testing
+   * Pre-scanned high-fidelity presets
    */
   static getPresetRooms() {
     return [
@@ -611,9 +657,30 @@ export class RoomReconstruction {
         points: this.generateProceduralPoints(4.6, 3.8, 2.7, 4500),
         defaultItems: [
           { type: 'sofa', position: { x: 0, y: 0, z: 0.8 }, rotationY: Math.PI },
-          { type: 'tv', position: { x: 0, y: 0, z: -1.6 }, rotationY: 0 },
           { type: 'plant', position: { x: -1.8, y: 0, z: -1.5 }, rotationY: 0 },
           { type: 'lamp', position: { x: 1.8, y: 0, z: 1.4 }, rotationY: 0 }
+        ],
+        aiDetectedObjects: [
+          {
+            id: 'ai_sofa_1',
+            class: 'couch',
+            label: 'Sofá de Salón',
+            score: 96,
+            depth: 2.1,
+            position3D: { x: 0, y: 0, z: 0.8 },
+            size3D: { width: 2.1, height: 0.85, depth: 0.9 },
+            timestamp: Date.now()
+          },
+          {
+            id: 'ai_plant_1',
+            class: 'potted plant',
+            label: 'Planta de Interior',
+            score: 91,
+            depth: 2.4,
+            position3D: { x: -1.8, y: 0, z: -1.5 },
+            size3D: { width: 0.6, height: 0.9, depth: 0.6 },
+            timestamp: Date.now()
+          }
         ]
       },
       {
@@ -637,6 +704,28 @@ export class RoomReconstruction {
           { type: 'mannequin', position: { x: 0, y: 0, z: -0.6 }, rotationY: Math.PI },
           { type: 'plant', position: { x: 2.0, y: 0, z: -1.7 }, rotationY: 0 },
           { type: 'lamp', position: { x: -2.0, y: 0, z: -1.6 }, rotationY: 0 }
+        ],
+        aiDetectedObjects: [
+          {
+            id: 'ai_desk_1',
+            class: 'dining table',
+            label: 'Escritorio Tech',
+            score: 94,
+            depth: 1.8,
+            position3D: { x: 0, y: 0, z: -1.2 },
+            size3D: { width: 1.4, height: 0.75, depth: 0.8 },
+            timestamp: Date.now()
+          },
+          {
+            id: 'ai_person_1',
+            class: 'person',
+            label: 'Persona / Sujeto (1:1)',
+            score: 98,
+            depth: 1.5,
+            position3D: { x: 0, y: 0, z: -0.6 },
+            size3D: { width: 0.5, height: 1.75, depth: 0.4 },
+            timestamp: Date.now()
+          }
         ]
       },
       {
@@ -659,14 +748,23 @@ export class RoomReconstruction {
           { type: 'bed', position: { x: 0, y: 0, z: -0.4 }, rotationY: 0 },
           { type: 'lamp', position: { x: -1.4, y: 0, z: -1.2 }, rotationY: 0 },
           { type: 'plant', position: { x: 1.4, y: 0, z: 1.2 }, rotationY: 0 }
+        ],
+        aiDetectedObjects: [
+          {
+            id: 'ai_bed_1',
+            class: 'bed',
+            label: 'Cama Matrimonial',
+            score: 97,
+            depth: 2.0,
+            position3D: { x: 0, y: 0, z: -0.4 },
+            size3D: { width: 1.7, height: 0.9, depth: 2.1 },
+            timestamp: Date.now()
+          }
         ]
       }
     ];
   }
 
-  /**
-   * Generates realistic spatial point clouds matching real room laser/camera scans
-   */
   static generateProceduralPoints(w, l, h, count = 4000) {
     const points = [];
     const halfW = w / 2;
@@ -678,21 +776,18 @@ export class RoomReconstruction {
       let r = 0.8, g = 0.8, b = 0.85;
 
       if (surface < 0.35) {
-        // Floor points
         x = (Math.random() - 0.5) * w;
         y = Math.random() * 0.05;
         z = (Math.random() - 0.5) * l;
         r = 0.72 + Math.random() * 0.1;
         g = 0.54 + Math.random() * 0.1;
-        b = 0.35 + Math.random() * 0.1; // wood tone
+        b = 0.35 + Math.random() * 0.1;
       } else if (surface < 0.5) {
-        // Ceiling points
         x = (Math.random() - 0.5) * w;
         y = h - Math.random() * 0.05;
         z = (Math.random() - 0.5) * l;
         r = 0.95; g = 0.95; b = 0.98;
       } else {
-        // Wall points (North, South, East, West)
         const wallSide = Math.floor(Math.random() * 4);
         y = Math.random() * h;
         const noise = (Math.random() - 0.5) * 0.06;

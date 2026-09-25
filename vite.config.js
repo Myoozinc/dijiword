@@ -10,11 +10,13 @@ export default defineConfig({
   build: {
     target: 'esnext',
     outDir: 'dist',
+    chunkSizeWarningLimit: 2500,
     rollupOptions: {
       output: {
         manualChunks: {
           three: ['three'],
-          vendor: ['react', 'react-dom']
+          vendor: ['react', 'react-dom'],
+          tensorflow: ['@tensorflow/tfjs', '@tensorflow-models/coco-ssd']
         }
       }
     }

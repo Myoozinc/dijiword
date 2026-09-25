@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { 
   Orbit, 
   Footprints, 
@@ -10,19 +11,16 @@ import {
   Trash2, 
   RotateCw, 
   Download, 
-  Share2, 
-  Camera, 
   Layers, 
-  Maximize2, 
-  Minimize2, 
-  Eye, 
   Box, 
   Sparkles,
-  ChevronDown,
   Info,
-  Check,
-  Compass,
-  ArrowLeft
+  ArrowLeft,
+  Lightbulb,
+  Thermometer,
+  Sliders,
+  Scan,
+  Maximize2
 } from 'lucide-react';
 import { RoomReconstruction } from '../services/roomReconstruction';
 import { Exporter } from '../services/exporter';
@@ -32,22 +30,28 @@ export function SimulationViewer({ scanData, onBackToScan }) {
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const rendererRef = useRef(null);
+  const controlsRef = useRef(null);
   const animFrameRef = useRef(null);
 
-  // Scene Objects References
+  // Scene references
   const roomGroupRef = useRef(null);
   const pointCloudRef = useRef(null);
   const cadGroupRef = useRef(null);
   const furnitureGroupRef = useRef(null);
+  const aiObjectsGroupRef = useRef(null);
   const sunLightRef = useRef(null);
   const hemiLightRef = useRef(null);
+  const spotLightsRef = useRef([]);
   const measureLineRef = useRef(null);
 
   // Viewer State
   const [navMode, setNavMode] = useState('orbit'); // 'orbit' | 'walk'
   const [renderStyle, setRenderStyle] = useState('mesh'); // 'mesh' | 'points' | 'cad' | 'thermal'
   const [timeOfDay, setTimeOfDay] = useState(14); // 8 to 22 hrs
-  const [activeTab, setActiveTab] = useState('tools'); // 'tools' | 'furniture' | 'stats' | 'export'
+  const [lightsOn, setLightsOn] = useState(true);
+  const [lightTemp, setLightTemp] = useState(3500); // 2700K warm to 6500K cool
+  const [showCeiling, setShowCeiling] = useState(false); // Dollhouse cutaway
+  const [activeTab, setActiveTab] = useState('lighting'); // 'lighting' | 'ai_objects' | 'furniture' | 'stats' | 'export'
   const [selectedFurnitureId, setSelectedFurnitureId] = useState(null);
   const [furnitureList, setFurnitureList] = useState([]);
   
@@ -64,25 +68,13 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     moveRight: false,
     yaw: 0,
     pitch: 0,
-    position: new THREE.Vector3(0, 1.6, 0),
-    speed: 0.05
+    position: new THREE.Vector3(0, 1.65, 0),
+    speed: 0.08
   });
 
-  // Touch interaction tracking
-  const touchStateRef = useRef({
-    isDown: false,
-    startX: 0,
-    startY: 0,
-    orbitTheta: Math.PI / 4,
-    orbitPhi: Math.PI / 3,
-    orbitRadius: 7.0,
-    target: new THREE.Vector3(0, 1.3, 0),
-    pinchDist: 0
-  });
+  const { bounds, points, aiDetectedObjects = [] } = scanData;
 
-  const { bounds, points } = scanData;
-
-  // 1. Initialize Three.js WebGL Scene
+  // 1. Initialize Three.js WebGL Scene with official OrbitControls
   useEffect(() => {
     if (!containerRef.current) return;
     const width = containerRef.current.clientWidth;
@@ -90,7 +82,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
 
     // Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0f1d);
+    scene.background = new THREE.Color(0x0f172a);
     sceneRef.current = scene;
 
     // Camera
@@ -98,59 +90,125 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     cameraRef.current = camera;
 
     // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 1.1;
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
+    // OrbitControls for rock-solid mobile touch and mouse navigation
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.maxPolarAngle = Math.PI / 2 - 0.01; // Don't go below floor
+    controls.minDistance = 1.5;
+    controls.maxDistance = 25;
+    controls.target.set(bounds.center.x, bounds.center.y * 0.6, bounds.center.z);
+    
+    // Position camera for beautiful 3D isometric view of the room
+    const initDist = Math.max(bounds.width, bounds.length) * 1.5;
+    camera.position.set(bounds.center.x + initDist * 0.7, bounds.height * 1.5, bounds.center.z + initDist * 0.9);
+    controls.update();
+    controlsRef.current = controls;
+
     // Lights
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x334155, 0.7);
+    // 1. Hemisphere ambient
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x334155, 0.85);
     scene.add(hemiLight);
     hemiLightRef.current = hemiLight;
 
-    const sunLight = new THREE.DirectionalLight(0xfff7ed, 1.4);
-    sunLight.position.set(5, 8, 5);
+    // 2. Directional Sun shining through the panoramic window
+    const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.2);
+    sunLight.position.set(bounds.min.x - 4, bounds.height + 3, bounds.center.z);
+    sunLight.target.position.set(bounds.center.x, 0, bounds.center.z);
+    scene.add(sunLight.target);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 1024;
     sunLight.shadow.mapSize.height = 1024;
     sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 25;
-    sunLight.shadow.bias = -0.001;
+    sunLight.shadow.camera.far = 30;
+    sunLight.shadow.bias = -0.0005;
     scene.add(sunLight);
     sunLightRef.current = sunLight;
 
-    // Furniture Group
+    // 3. Interior Ceiling Spotlights
+    const spots = [];
+    const spotCoords = [
+      [bounds.center.x - bounds.width * 0.25, bounds.center.z - bounds.length * 0.25],
+      [bounds.center.x + bounds.width * 0.25, bounds.center.z - bounds.length * 0.25],
+      [bounds.center.x - bounds.width * 0.25, bounds.center.z + bounds.length * 0.25],
+      [bounds.center.x + bounds.width * 0.25, bounds.center.z + bounds.length * 0.25],
+    ];
+
+    spotCoords.forEach(([sx, sz], i) => {
+      const spot = new THREE.SpotLight(0xffedd5, 1.8, 8, Math.PI / 4, 0.4, 1);
+      spot.position.set(sx, bounds.max.y - 0.05, sz);
+      spot.target.position.set(sx, 0, sz);
+      scene.add(spot.target);
+      spot.castShadow = true;
+      spot.shadow.mapSize.width = 512;
+      spot.shadow.mapSize.height = 512;
+      scene.add(spot);
+      spots.push(spot);
+    });
+    spotLightsRef.current = spots;
+
+    // Groups
     const furnitureGroup = new THREE.Group();
     furnitureGroup.name = 'FurnitureGroup';
     scene.add(furnitureGroup);
     furnitureGroupRef.current = furnitureGroup;
 
-    // Build Room Meshes
-    updateSceneGeometry();
+    const aiObjectsGroup = new THREE.Group();
+    aiObjectsGroup.name = 'AIObjectsGroup';
+    scene.add(aiObjectsGroup);
+    aiObjectsGroupRef.current = aiObjectsGroup;
 
-    // Default Furniture from scan if present
+    // Build Room Meshes & Geometries
+    rebuildRoomMesh(false);
+
+    // Populate AI Detected Objects with real extracted textures
+    if (aiDetectedObjects && aiDetectedObjects.length > 0) {
+      aiDetectedObjects.forEach(obj => {
+        const objMesh = RoomReconstruction.createAIObjectMesh(obj);
+        aiObjectsGroup.add(objMesh);
+      });
+    }
+
+    // Default Furniture if any
     if (scanData.defaultItems && scanData.defaultItems.length > 0) {
       scanData.defaultItems.forEach(item => {
         addFurniture(item.type, item.position, item.rotationY);
       });
     }
 
-    // Set initial orbit camera position
-    updateOrbitCamera();
+    // Keyboard controls for walking
+    const handleKeyDown = (e) => {
+      const key = e.key.toLowerCase();
+      if (key === 'w' || key === 'arrowup') walkStateRef.current.moveForward = true;
+      if (key === 's' || key === 'arrowdown') walkStateRef.current.moveBackward = true;
+      if (key === 'a' || key === 'arrowleft') walkStateRef.current.moveLeft = true;
+      if (key === 'd' || key === 'arrowright') walkStateRef.current.moveRight = true;
+    };
+    const handleKeyUp = (e) => {
+      const key = e.key.toLowerCase();
+      if (key === 'w' || key === 'arrowup') walkStateRef.current.moveForward = false;
+      if (key === 's' || key === 'arrowdown') walkStateRef.current.moveBackward = false;
+      if (key === 'a' || key === 'arrowleft') walkStateRef.current.moveLeft = false;
+      if (key === 'd' || key === 'arrowright') walkStateRef.current.moveRight = false;
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
-    // Animation Loop
-    let lastTime = performance.now();
-    const animate = (currentTime) => {
-      const delta = (currentTime - lastTime) / 1000;
-      lastTime = currentTime;
-
-      // Handle First-person walk movement
-      if (navMode === 'walk') {
+    // Animation Render Loop
+    const animate = () => {
+      if (controlsRef.current && navMode === 'orbit') {
+        controlsRef.current.update();
+      } else if (navMode === 'walk') {
         updateWalkMovement();
       }
 
@@ -172,7 +230,10 @@ export function SimulationViewer({ scanData, onBackToScan }) {
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (controlsRef.current) controlsRef.current.dispose();
       if (rendererRef.current && rendererRef.current.domElement) {
         containerRef.current?.removeChild(rendererRef.current.domElement);
         rendererRef.current.dispose();
@@ -180,32 +241,30 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     };
   }, []);
 
-  // Update Geometry & Styles
-  const updateSceneGeometry = () => {
+  // Rebuild Room Mesh
+  const rebuildRoomMesh = (isCeilingVisible) => {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Remove previous groups
     if (roomGroupRef.current) scene.remove(roomGroupRef.current);
     if (pointCloudRef.current) scene.remove(pointCloudRef.current);
     if (cadGroupRef.current) scene.remove(cadGroupRef.current);
 
-    // 1. Build Room Mesh
-    const roomGroup = RoomReconstruction.buildRoomMesh(bounds, scanData.keyframes);
+    // 1. Room Mesh
+    const roomGroup = RoomReconstruction.buildRoomMesh(bounds, scanData.keyframes, isCeilingVisible);
     roomGroupRef.current = roomGroup;
     scene.add(roomGroup);
 
-    // 2. Build Point Cloud
+    // 2. Point Cloud
     const pointCloud = RoomReconstruction.createPointCloud(points, renderStyle === 'thermal' ? 'thermal' : 'rgb');
     pointCloudRef.current = pointCloud;
     scene.add(pointCloud);
 
-    // 3. Build CAD Wireframe
+    // 3. CAD Wireframe
     const cadGroup = RoomReconstruction.buildWireframeCAD(bounds);
     cadGroupRef.current = cadGroup;
     scene.add(cadGroup);
 
-    // Visibility toggles based on style
     applyRenderStyle(renderStyle);
   };
 
@@ -215,7 +274,6 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     if (pointCloudRef.current) {
       pointCloudRef.current.visible = (style === 'points' || style === 'thermal');
       if (style === 'thermal' || style === 'points') {
-        // Recreate with correct color shader
         const scene = sceneRef.current;
         scene.remove(pointCloudRef.current);
         const newPC = RoomReconstruction.createPointCloud(points, style === 'thermal' ? 'thermal' : 'rgb');
@@ -226,65 +284,80 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     if (cadGroupRef.current) cadGroupRef.current.visible = (style === 'cad');
   };
 
-  // Sun Simulation
+  // Toggle Ceiling Cutaway Mode
+  const toggleCeiling = () => {
+    const next = !showCeiling;
+    setShowCeiling(next);
+    rebuildRoomMesh(next);
+  };
+
+  // Dynamic Lighting & Solar Simulation Handler
   useEffect(() => {
     if (!sunLightRef.current || !hemiLightRef.current || !sceneRef.current) return;
-    
-    // Hour to sun angle (8 to 22)
-    const normalizedHour = (timeOfDay - 6) / 14; // 0 to 1
-    const sunAngle = normalizedHour * Math.PI;
 
-    const sunX = Math.cos(sunAngle) * 8;
-    const sunY = Math.max(0.5, Math.sin(sunAngle) * 9);
-    const sunZ = 5;
+    // Convert Kelvin to Hex Color
+    const kelvinToHex = (temp) => {
+      if (temp < 3200) return 0xffe2b2; // Warm 2700K
+      if (temp < 4800) return 0xfff4e6; // Neutral 4000K
+      return 0xdbeafe; // Cool 6500K
+    };
+    const bulbColor = kelvinToHex(lightTemp);
+
+    // Spotlights control
+    spotLightsRef.current.forEach(spot => {
+      spot.intensity = lightsOn ? 2.2 : 0;
+      spot.color.setHex(bulbColor);
+    });
+
+    // Sun angle calculation based on hour of day
+    const hourNormalized = (timeOfDay - 8) / 14; // 0 (8:00) to 1 (22:00)
+    const sunAngle = (1 - hourNormalized) * Math.PI;
+
+    // Sun shining in through the window on the West side
+    const sunDist = 9;
+    const sunX = bounds.min.x - Math.cos(sunAngle) * sunDist;
+    const sunY = Math.max(0.6, Math.sin(sunAngle) * 8);
+    const sunZ = bounds.center.z + Math.cos(sunAngle) * 4;
 
     sunLightRef.current.position.set(sunX, sunY, sunZ);
 
-    if (timeOfDay < 9) {
-      // Golden morning
+    if (timeOfDay < 10) {
+      // Golden sunrise
       sunLightRef.current.color.setHex(0xffedd5);
-      sunLightRef.current.intensity = 1.2;
+      sunLightRef.current.intensity = 2.4;
       hemiLightRef.current.color.setHex(0xfef3c7);
+      hemiLightRef.current.intensity = 0.9;
       sceneRef.current.background = new THREE.Color(0x1e1b4b);
     } else if (timeOfDay < 17) {
       // Crisp daylight
       sunLightRef.current.color.setHex(0xffffff);
-      sunLightRef.current.intensity = 1.5;
+      sunLightRef.current.intensity = 2.8;
       hemiLightRef.current.color.setHex(0xe2e8f0);
+      hemiLightRef.current.intensity = 1.0;
       sceneRef.current.background = new THREE.Color(0x0f172a);
     } else if (timeOfDay < 20) {
       // Golden sunset
       sunLightRef.current.color.setHex(0xf97316);
-      sunLightRef.current.intensity = 1.3;
+      sunLightRef.current.intensity = 2.2;
       hemiLightRef.current.color.setHex(0x7c2d12);
-      sceneRef.current.background = new THREE.Color(0x27102e);
+      hemiLightRef.current.intensity = 0.7;
+      sceneRef.current.background = new THREE.Color(0x2d1222);
     } else {
-      // Night simulation
+      // Night simulation (artificial room lamps shine)
       sunLightRef.current.color.setHex(0x38bdf8);
       sunLightRef.current.intensity = 0.2;
-      hemiLightRef.current.color.setHex(0x0f172a);
+      hemiLightRef.current.color.setHex(0x090d16);
+      hemiLightRef.current.intensity = 0.3;
       sceneRef.current.background = new THREE.Color(0x030712);
     }
-  }, [timeOfDay]);
+  }, [timeOfDay, lightsOn, lightTemp]);
 
-  // Orbit Camera calculation
-  const updateOrbitCamera = () => {
-    if (!cameraRef.current) return;
-    const { orbitTheta, orbitPhi, orbitRadius, target } = touchStateRef.current;
-    const x = target.x + orbitRadius * Math.sin(orbitPhi) * Math.sin(orbitTheta);
-    const y = target.y + orbitRadius * Math.cos(orbitPhi);
-    const z = target.z + orbitRadius * Math.sin(orbitPhi) * Math.cos(orbitTheta);
-    cameraRef.current.position.set(x, y, z);
-    cameraRef.current.lookAt(target);
-  };
-
-  // Walk movement update
+  // First-person Walk Movement Update
   const updateWalkMovement = () => {
     if (!cameraRef.current) return;
     const walk = walkStateRef.current;
     const { min, max } = bounds;
 
-    // Movement vector
     const forward = new THREE.Vector3(Math.sin(walk.yaw), 0, Math.cos(walk.yaw)).normalize();
     const right = new THREE.Vector3(Math.cos(walk.yaw), 0, -Math.sin(walk.yaw)).normalize();
 
@@ -293,15 +366,14 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     if (walk.moveRight) walk.position.addScaledVector(right, walk.speed);
     if (walk.moveLeft) walk.position.addScaledVector(right, -walk.speed);
 
-    // Wall collision clamping
-    const margin = 0.4;
+    // Wall collision boundaries
+    const margin = 0.35;
     walk.position.x = Math.max(min.x + margin, Math.min(max.x - margin, walk.position.x));
     walk.position.z = Math.max(min.z + margin, Math.min(max.z - margin, walk.position.z));
-    walk.position.y = 1.6; // Eye level height
+    walk.position.y = 1.65; // Eye level
 
     cameraRef.current.position.copy(walk.position);
 
-    // Look direction
     const lookTarget = new THREE.Vector3(
       walk.position.x + Math.sin(walk.yaw) * Math.cos(walk.pitch),
       walk.position.y + Math.sin(walk.pitch),
@@ -310,103 +382,103 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     cameraRef.current.lookAt(lookTarget);
   };
 
-  // Touch Handlers for Orbit & First-Person Look
-  const handleTouchStart = (e) => {
-    if (e.touches.length === 1) {
-      touchStateRef.current.isDown = true;
-      touchStateRef.current.startX = e.touches[0].clientX;
-      touchStateRef.current.startY = e.touches[0].clientY;
-    } else if (e.touches.length === 2) {
-      // Pinch to zoom
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      touchStateRef.current.pinchDist = Math.sqrt(dx * dx + dy * dy);
-    }
-  };
-
-  const handleTouchMove = (e) => {
-    if (navMode === 'orbit') {
-      if (e.touches.length === 1 && touchStateRef.current.isDown) {
-        const deltaX = e.touches[0].clientX - touchStateRef.current.startX;
-        const deltaY = e.touches[0].clientY - touchStateRef.current.startY;
-        touchStateRef.current.startX = e.touches[0].clientX;
-        touchStateRef.current.startY = e.touches[0].clientY;
-
-        touchStateRef.current.orbitTheta -= deltaX * 0.008;
-        touchStateRef.current.orbitPhi = Math.max(0.1, Math.min(Math.PI / 2 - 0.02, touchStateRef.current.orbitPhi - deltaY * 0.008));
-        updateOrbitCamera();
-      } else if (e.touches.length === 2) {
-        // Pinch Zoom
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const factor = dist / (touchStateRef.current.pinchDist || dist);
-        touchStateRef.current.pinchDist = dist;
-
-        touchStateRef.current.orbitRadius = Math.max(2.0, Math.min(18.0, touchStateRef.current.orbitRadius / factor));
-        updateOrbitCamera();
-      }
-    } else if (navMode === 'walk') {
-      if (e.touches.length === 1 && touchStateRef.current.isDown) {
-        const deltaX = e.touches[0].clientX - touchStateRef.current.startX;
-        const deltaY = e.touches[0].clientY - touchStateRef.current.startY;
-        touchStateRef.current.startX = e.touches[0].clientX;
-        touchStateRef.current.startY = e.touches[0].clientY;
-
-        walkStateRef.current.yaw -= deltaX * 0.006;
-        walkStateRef.current.pitch = Math.max(-1.1, Math.min(1.1, walkStateRef.current.pitch - deltaY * 0.006));
-      }
-    }
-  };
-
-  const handleTouchEnd = () => {
-    touchStateRef.current.isDown = false;
-  };
-
-  // Mouse wheel zoom
-  const handleWheel = (e) => {
-    if (navMode === 'orbit') {
-      touchStateRef.current.orbitRadius = Math.max(2.0, Math.min(20.0, touchStateRef.current.orbitRadius + e.deltaY * 0.008));
-      updateOrbitCamera();
-    }
-  };
-
-  // Quick Orbit Preset Views
-  const setPresetView = (view) => {
-    const { center } = bounds;
-    touchStateRef.current.target.set(center.x, center.y, center.z);
-
-    if (view === 'top') {
-      // 2D Floorplan Top View
-      touchStateRef.current.orbitTheta = 0;
-      touchStateRef.current.orbitPhi = 0.05;
-      touchStateRef.current.orbitRadius = Math.max(bounds.width, bounds.length) * 1.5;
-    } else if (view === 'iso') {
-      // Isometric 3D Showcase
-      touchStateRef.current.orbitTheta = Math.PI / 4;
-      touchStateRef.current.orbitPhi = Math.PI / 3.2;
-      touchStateRef.current.orbitRadius = Math.max(bounds.width, bounds.length) * 1.4;
-    } else if (view === 'front') {
-      touchStateRef.current.orbitTheta = 0;
-      touchStateRef.current.orbitPhi = Math.PI / 2.2;
-      touchStateRef.current.orbitRadius = bounds.length * 1.6;
-    }
-    updateOrbitCamera();
-  };
-
-  // Switch Navigation Mode
+  // Toggle navigation mode (Orbit vs Walk)
   const toggleNavMode = (mode) => {
     setNavMode(mode);
     if (mode === 'walk') {
-      walkStateRef.current.position.set(0, 1.6, 0);
+      if (controlsRef.current) controlsRef.current.enabled = false;
+      walkStateRef.current.position.set(bounds.center.x, 1.65, bounds.center.z);
       walkStateRef.current.yaw = 0;
       walkStateRef.current.pitch = 0;
     } else {
-      updateOrbitCamera();
+      if (controlsRef.current) {
+        controlsRef.current.enabled = true;
+        controlsRef.current.target.set(bounds.center.x, bounds.center.y * 0.6, bounds.center.z);
+        controlsRef.current.update();
+      }
     }
   };
 
-  // Furniture Management
+  // Quick Preset Angles (Top-Down 2D, 3D Iso, Front)
+  const setPresetView = (view) => {
+    if (!controlsRef.current || !cameraRef.current) return;
+    const { center, width, length, height } = bounds;
+    controlsRef.current.target.set(center.x, center.y * 0.5, center.z);
+
+    if (view === 'top') {
+      cameraRef.current.position.set(center.x, height * 2.8, center.z + 0.01);
+    } else if (view === 'iso') {
+      const dist = Math.max(width, length) * 1.5;
+      cameraRef.current.position.set(center.x + dist * 0.7, height * 1.6, center.z + dist * 0.8);
+    } else if (view === 'front') {
+      cameraRef.current.position.set(center.x, center.y, center.z + length * 1.8);
+    }
+    controlsRef.current.update();
+  };
+
+  // 3D Tap to Teleport (Walk mode) or Measure Tool
+  const handleCanvasClick = (e) => {
+    if (!cameraRef.current || !sceneRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
+    const intersects = raycaster.intersectObjects(sceneRef.current.children, true);
+
+    if (intersects.length > 0) {
+      const hit = intersects[0].point;
+
+      // 1. Measure Mode
+      if (measureMode) {
+        const newPoints = [...measurePoints, hit];
+        if (newPoints.length === 2) {
+          const dist = newPoints[0].distanceTo(newPoints[1]);
+          setMeasuredDistance(dist.toFixed(2));
+          drawMeasurementLine(newPoints[0], newPoints[1]);
+          setMeasurePoints([]);
+        } else {
+          setMeasurePoints(newPoints);
+          setMeasuredDistance(null);
+        }
+        return;
+      }
+
+      // 2. Walk Mode Tap-to-Move: clicking on floor walks there!
+      if (navMode === 'walk' && intersects[0].object.name === 'FloorMesh') {
+        walkStateRef.current.position.x = hit.x;
+        walkStateRef.current.position.z = hit.z;
+      }
+    }
+  };
+
+  const drawMeasurementLine = (p1, p2) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (measureLineRef.current) scene.remove(measureLineRef.current);
+
+    const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+    const mat = new THREE.LineBasicMaterial({ color: 0x22d3ee, linewidth: 3 });
+    const line = new THREE.Line(geo, mat);
+
+    const sphereGeo = new THREE.SphereGeometry(0.05, 16, 16);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+    const s1 = new THREE.Mesh(sphereGeo, sphereMat);
+    s1.position.copy(p1);
+    const s2 = new THREE.Mesh(sphereGeo, sphereMat);
+    s2.position.copy(p2);
+
+    const group = new THREE.Group();
+    group.add(line);
+    group.add(s1);
+    group.add(s2);
+    scene.add(group);
+    measureLineRef.current = group;
+  };
+
+  // Furniture Catalog
   const addFurniture = (type, pos = null, rotY = 0) => {
     const defaultPos = pos || { x: (Math.random() - 0.5) * (bounds.width * 0.5), y: 0, z: (Math.random() - 0.5) * (bounds.length * 0.5) };
     const itemMesh = RoomReconstruction.createFurniture(type, defaultPos, rotY);
@@ -471,72 +543,6 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     return labels[type] || type;
   };
 
-  // 3D Laser Measure Tool
-  const handleCanvasClick = (e) => {
-    if (!measureMode || !cameraRef.current || !sceneRef.current) return;
-
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
-
-    // Intersect with floor or room
-    const intersects = raycaster.intersectObjects(sceneRef.current.children, true);
-    if (intersects.length > 0) {
-      const hit = intersects[0].point;
-      const newPoints = [...measurePoints, hit];
-
-      if (newPoints.length === 2) {
-        const dist = newPoints[0].distanceTo(newPoints[1]);
-        setMeasuredDistance(dist.toFixed(2));
-        drawMeasurementLine(newPoints[0], newPoints[1]);
-        setMeasurePoints([]);
-      } else {
-        setMeasurePoints(newPoints);
-        setMeasuredDistance(null);
-      }
-    }
-  };
-
-  const drawMeasurementLine = (p1, p2) => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-    if (measureLineRef.current) scene.remove(measureLineRef.current);
-
-    const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-    const mat = new THREE.LineBasicMaterial({ color: 0x22d3ee, linewidth: 3 });
-    const line = new THREE.Line(geo, mat);
-    
-    // Add endpoint marker spheres
-    const sphereGeo = new THREE.SphereGeometry(0.04, 16, 16);
-    const sphereMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
-    const s1 = new THREE.Mesh(sphereGeo, sphereMat);
-    s1.position.copy(p1);
-    const s2 = new THREE.Mesh(sphereGeo, sphereMat);
-    s2.position.copy(p2);
-
-    const group = new THREE.Group();
-    group.add(line);
-    group.add(s1);
-    group.add(s2);
-    scene.add(group);
-    measureLineRef.current = group;
-  };
-
-  // Export handlers
-  const handleExportPLY = () => Exporter.exportPLY(points, `${scanData.name || 'scan'}.ply`);
-  const handleExportOBJ = () => Exporter.exportOBJ(bounds, `${scanData.name || 'scan'}.obj`);
-  const handleExportJSON = () => {
-    Exporter.exportSimulationJSON({
-      scan: scanData,
-      furniture: furnitureList.map(f => ({ type: f.type, position: f.position, rotationY: f.rotationY })),
-      lighting: { timeOfDay },
-      version: '1.0.0'
-    }, `${scanData.name || 'scan'}-sim.json`);
-  };
-
   return (
     <div className="relative w-full h-full flex flex-col bg-[#090d16] overflow-hidden select-none">
       {/* Top Floating Control Bar */}
@@ -552,8 +558,8 @@ export function SimulationViewer({ scanData, onBackToScan }) {
           </button>
           
           <div className="glass-pill px-3 py-1.5 rounded-xl border border-cyan-500/20">
-            <span className="text-xs font-bold text-white tracking-wide truncate max-w-[140px] sm:max-w-xs block">
-              {scanData.name || 'Espacio Mapeado 3D'}
+            <span className="text-xs font-bold text-white tracking-wide truncate max-w-[130px] sm:max-w-xs block">
+              {scanData.name || 'Simulación 3D'}
             </span>
           </div>
         </div>
@@ -569,7 +575,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
               }`}
             >
               <Orbit className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Orbital</span>
+              <span>Orbital</span>
             </button>
             <button
               onClick={() => toggleNavMode('walk')}
@@ -578,11 +584,11 @@ export function SimulationViewer({ scanData, onBackToScan }) {
               }`}
             >
               <Footprints className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Caminar 1ªP</span>
+              <span>Caminar</span>
             </button>
           </div>
 
-          {/* Render Style Menu */}
+          {/* Render Style Toggles */}
           <div className="flex p-0.5 rounded-xl glass-pill border border-white/10">
             <button
               onClick={() => applyRenderStyle('mesh')}
@@ -618,21 +624,17 @@ export function SimulationViewer({ scanData, onBackToScan }) {
       {/* 3D WebGL Canvas Container */}
       <div
         ref={containerRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onWheel={handleWheel}
         onClick={handleCanvasClick}
         className="w-full h-full relative cursor-grab active:cursor-grabbing"
       />
 
-      {/* Quick Camera Angle Buttons (Top, Isometric, Front) - for Orbit mode */}
+      {/* Quick Camera Angle Buttons (Top, Isometric, Front) */}
       {navMode === 'orbit' && (
         <div className="absolute top-16 right-3 z-20 flex flex-col space-y-1.5">
           <button
             onClick={() => setPresetView('top')}
             className="p-2 rounded-xl glass-btn text-xs font-mono font-bold text-cyan-400 hover:text-white"
-            title="Vista Planta 2D (Cenital)"
+            title="Vista Planta 2D"
           >
             Planta
           </button>
@@ -650,13 +652,24 @@ export function SimulationViewer({ scanData, onBackToScan }) {
           >
             Frontal
           </button>
+
+          {/* Toggle Dollhouse Cutaway */}
+          <button
+            onClick={toggleCeiling}
+            className={`p-2 rounded-xl glass-btn text-xs font-mono font-bold transition ${
+              showCeiling ? 'text-amber-400 border-amber-400/50' : 'text-cyan-400'
+            }`}
+            title="Techo Abierto / Casa de Muñecas"
+          >
+            {showCeiling ? 'Techo ON' : 'Techo OFF'}
+          </button>
         </div>
       )}
 
       {/* Touch Dual Joystick for Walk Mode */}
       {navMode === 'walk' && (
         <div className="absolute bottom-28 inset-x-4 z-20 flex items-center justify-between pointer-events-none">
-          {/* Left Movement D-Pad */}
+          {/* Movement D-Pad */}
           <div className="relative w-36 h-36 rounded-full glass-panel border border-cyan-500/30 flex items-center justify-center pointer-events-auto shadow-2xl">
             <button
               onMouseDown={() => { walkStateRef.current.moveForward = true; }}
@@ -699,14 +712,13 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             </div>
           </div>
 
-          {/* Right Touch Look Hint */}
-          <div className="glass-pill px-3 py-2 rounded-xl text-center pointer-events-none max-w-[150px]">
-            <span className="text-[11px] text-slate-300">Desliza la pantalla derecha para rotar la mirada 360°</span>
+          <div className="glass-pill px-3 py-2 rounded-xl text-center pointer-events-none max-w-[170px]">
+            <span className="text-[11px] text-slate-300">Toca el suelo para teletransportarte o usa WASD / Flechas</span>
           </div>
         </div>
       )}
 
-      {/* Measurement HUD banner if active */}
+      {/* Measurement HUD banner */}
       {measureMode && (
         <div className="absolute top-16 left-4 z-20 glass-pill px-4 py-2 rounded-xl flex items-center space-x-2 border border-cyan-400/40">
           <Ruler className="w-4 h-4 text-cyan-400" />
@@ -725,14 +737,25 @@ export function SimulationViewer({ scanData, onBackToScan }) {
         {/* Navigation Tabs */}
         <div className="flex items-center justify-around px-4 pt-3 pb-2 border-b border-white/5 text-xs font-semibold">
           <button
-            onClick={() => setActiveTab('tools')}
+            onClick={() => setActiveTab('lighting')}
             className={`pb-1 flex items-center space-x-1.5 transition ${
-              activeTab === 'tools' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
+              activeTab === 'lighting' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
             }`}
           >
             <Sun className="w-4 h-4" />
-            <span>Iluminación & Sol</span>
+            <span>Luz & Sol</span>
           </button>
+          
+          <button
+            onClick={() => setActiveTab('ai_objects')}
+            className={`pb-1 flex items-center space-x-1.5 transition ${
+              activeTab === 'ai_objects' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'
+            }`}
+          >
+            <Scan className="w-4 h-4" />
+            <span>Objetos IA ({aiDetectedObjects.length})</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('furniture')}
             className={`pb-1 flex items-center space-x-1.5 transition ${
@@ -742,6 +765,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             <Plus className="w-4 h-4" />
             <span>Mobiliario ({furnitureList.length})</span>
           </button>
+
           <button
             onClick={() => setActiveTab('stats')}
             className={`pb-1 flex items-center space-x-1.5 transition ${
@@ -749,8 +773,9 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             }`}
           >
             <Info className="w-4 h-4" />
-            <span>Cotas & Medidas</span>
+            <span>Cotas</span>
           </button>
+
           <button
             onClick={() => setActiveTab('export')}
             className={`pb-1 flex items-center space-x-1.5 transition ${
@@ -758,185 +783,155 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             }`}
           >
             <Download className="w-4 h-4" />
-            <span>Exportar 3D</span>
+            <span>Exportar</span>
           </button>
         </div>
 
-        {/* Tab 1: Lighting & Solar Simulation */}
-        {activeTab === 'tools' && (
-          <div className="p-4 flex flex-col space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 text-xs font-semibold text-slate-200">
-                {timeOfDay >= 19 || timeOfDay < 7 ? (
-                  <Moon className="w-4 h-4 text-indigo-400" />
-                ) : (
-                  <Sun className="w-4 h-4 text-amber-400" />
-                )}
-                <span>Simulación Solar y Sombras en Tiempo Real</span>
+        {/* Tab 1: Functional Lighting & Solar Simulation */}
+        {activeTab === 'lighting' && (
+          <div className="p-4 flex flex-col space-y-3.5">
+            {/* Sun Time of Day Slider */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center space-x-2 text-xs font-semibold text-slate-200">
+                  {timeOfDay >= 19 || timeOfDay < 7 ? (
+                    <Moon className="w-4 h-4 text-indigo-400" />
+                  ) : (
+                    <Sun className="w-4 h-4 text-amber-400" />
+                  )}
+                  <span>Posición Solar & Sombras:</span>
+                </div>
+                <span className="text-xs font-mono font-bold text-cyan-400">
+                  {timeOfDay}:00 hrs
+                </span>
               </div>
-              <div className="text-xs font-mono font-bold text-cyan-400">
-                {timeOfDay}:00 hrs
+              <div className="flex items-center space-x-3">
+                <span className="text-[11px] text-slate-400">08:00</span>
+                <input
+                  type="range"
+                  min="8"
+                  max="22"
+                  step="1"
+                  value={timeOfDay}
+                  onChange={(e) => setTimeOfDay(parseInt(e.target.value))}
+                  className="w-full accent-cyan-400 cursor-pointer"
+                />
+                <span className="text-[11px] text-slate-400">22:00</span>
               </div>
             </div>
 
-            <div className="flex items-center space-x-3">
-              <span className="text-[11px] text-slate-400">08:00</span>
-              <input
-                type="range"
-                min="8"
-                max="22"
-                step="1"
-                value={timeOfDay}
-                onChange={(e) => setTimeOfDay(parseInt(e.target.value))}
-                className="w-full accent-cyan-400 cursor-pointer"
-              />
-              <span className="text-[11px] text-slate-400">22:00</span>
-            </div>
+            {/* Interior Lights & Color Temp Controls */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {/* Ceiling Spotlights Toggle */}
+              <button
+                onClick={() => setLightsOn(!lightsOn)}
+                className={`py-2 px-3 rounded-xl border flex items-center justify-between text-xs font-bold transition ${
+                  lightsOn 
+                    ? 'bg-amber-500/20 border-amber-400/50 text-amber-300' 
+                    : 'glass-btn text-slate-400'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5">
+                  <Lightbulb className="w-4 h-4" />
+                  <span>Focos Techo</span>
+                </div>
+                <span>{lightsOn ? 'ON' : 'OFF'}</span>
+              </button>
 
-            {/* Quick time buttons */}
-            <div className="grid grid-cols-4 gap-2 pt-1 text-[11px]">
+              {/* Color Temperature (Kelvin) */}
               <button
-                onClick={() => setTimeOfDay(9)}
-                className={`py-1.5 rounded-lg border transition ${
-                  timeOfDay === 9 ? 'bg-amber-500/20 border-amber-400 text-amber-300' : 'glass-btn text-slate-400'
-                }`}
+                onClick={() => setLightTemp(prev => (prev === 2700 ? 4000 : prev === 4000 ? 6500 : 2700))}
+                className="py-2 px-3 rounded-xl glass-btn border border-white/10 flex items-center justify-between text-xs font-bold text-cyan-300"
               >
-                Mañana
-              </button>
-              <button
-                onClick={() => setTimeOfDay(13)}
-                className={`py-1.5 rounded-lg border transition ${
-                  timeOfDay === 13 ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300' : 'glass-btn text-slate-400'
-                }`}
-              >
-                Mediodía
-              </button>
-              <button
-                onClick={() => setTimeOfDay(18)}
-                className={`py-1.5 rounded-lg border transition ${
-                  timeOfDay === 18 ? 'bg-orange-500/20 border-orange-400 text-orange-300' : 'glass-btn text-slate-400'
-                }`}
-              >
-                Atardecer
-              </button>
-              <button
-                onClick={() => setTimeOfDay(21)}
-                className={`py-1.5 rounded-lg border transition ${
-                  timeOfDay === 21 ? 'bg-indigo-500/20 border-indigo-400 text-indigo-300' : 'glass-btn text-slate-400'
-                }`}
-              >
-                Noche
+                <div className="flex items-center space-x-1.5">
+                  <Thermometer className="w-4 h-4" />
+                  <span>Temperatura</span>
+                </div>
+                <span className="text-[11px] font-mono">
+                  {lightTemp === 2700 ? '2700K 🟡' : lightTemp === 4000 ? '4000K ⚪' : '6500K 🔵'}
+                </span>
               </button>
             </div>
           </div>
         )}
 
-        {/* Tab 2: Furniture Simulator */}
+        {/* Tab 2: AI Detected Objects & Textures */}
+        {activeTab === 'ai_objects' && (
+          <div className="p-4 flex flex-col space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-300">
+                Objetos, Sujetos y Texturas Detectados por IA:
+              </span>
+              <span className="text-[11px] font-mono text-cyan-400">
+                {aiDetectedObjects.length} detectados
+              </span>
+            </div>
+
+            {aiDetectedObjects.length === 0 ? (
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
+                No se detectaron objetos en este escaneo. Puedes agregar mobiliario en la pestaña "Mobiliario".
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto no-scrollbar">
+                {aiDetectedObjects.map((obj) => (
+                  <div
+                    key={obj.id}
+                    className="p-2.5 rounded-xl glass-btn border border-cyan-500/30 flex items-center space-x-2"
+                  >
+                    {obj.texture ? (
+                      <img
+                        src={obj.texture}
+                        alt={obj.label}
+                        className="w-10 h-10 rounded-lg object-cover border border-cyan-400/40"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
+                        <Box className="w-5 h-5" />
+                      </div>
+                    )}
+                    <div className="flex-1 truncate">
+                      <div className="text-xs font-bold text-white truncate">{obj.label}</div>
+                      <div className="text-[10px] text-cyan-400 font-mono">
+                        {obj.depth}m • {obj.score}%
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: Furniture Simulator */}
         {activeTab === 'furniture' && (
           <div className="p-4 flex flex-col space-y-3">
             <div className="text-xs font-semibold text-slate-300">
-              Añadir Mobiliario para Simular Distribución Espacial:
+              Añadir Mobiliario para Simular Distribución:
             </div>
 
-            {/* Furniture catalog buttons */}
             <div className="flex space-x-2 overflow-x-auto pb-1 no-scrollbar text-xs">
-              <button
-                onClick={() => addFurniture('sofa')}
-                className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap hover:border-cyan-400/50"
-              >
-                🛋️ Sofá 3P
-              </button>
-              <button
-                onClick={() => addFurniture('bed')}
-                className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap hover:border-cyan-400/50"
-              >
-                🛏️ Cama Queen
-              </button>
-              <button
-                onClick={() => addFurniture('desk')}
-                className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap hover:border-cyan-400/50"
-              >
-                🖥️ Escritorio
-              </button>
-              <button
-                onClick={() => addFurniture('dining')}
-                className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap hover:border-cyan-400/50"
-              >
-                🪑 Comedor
-              </button>
-              <button
-                onClick={() => addFurniture('tv')}
-                className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap hover:border-cyan-400/50"
-              >
-                📺 Smart TV
-              </button>
-              <button
-                onClick={() => addFurniture('plant')}
-                className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap hover:border-cyan-400/50"
-              >
-                🪴 Planta
-              </button>
-              <button
-                onClick={() => addFurniture('lamp')}
-                className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap hover:border-cyan-400/50"
-              >
-                💡 Lámpara
-              </button>
-              <button
-                onClick={() => addFurniture('mannequin')}
-                className="px-3 py-2 rounded-xl glass-btn text-cyan-300 font-semibold whitespace-nowrap hover:border-cyan-400/50"
-              >
-                🧍 Maniquí (1:1)
-              </button>
+              <button onClick={() => addFurniture('sofa')} className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap">🛋️ Sofá 3P</button>
+              <button onClick={() => addFurniture('bed')} className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap">🛏️ Cama Queen</button>
+              <button onClick={() => addFurniture('desk')} className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap">🖥️ Escritorio</button>
+              <button onClick={() => addFurniture('plant')} className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap">🪴 Planta</button>
+              <button onClick={() => addFurniture('lamp')} className="px-3 py-2 rounded-xl glass-btn text-slate-200 whitespace-nowrap">💡 Lámpara</button>
+              <button onClick={() => addFurniture('mannequin')} className="px-3 py-2 rounded-xl glass-btn text-cyan-300 font-semibold whitespace-nowrap">🧍 Maniquí (1:1)</button>
             </div>
 
-            {/* Selected furniture transform controls */}
             {selectedFurnitureId && (
-              <div className="p-3 rounded-2xl bg-slate-900/80 border border-cyan-500/30 flex items-center justify-between">
-                <div className="text-xs font-semibold text-cyan-300 truncate max-w-[130px]">
+              <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-cyan-500/30 flex items-center justify-between">
+                <div className="text-xs font-semibold text-cyan-300 truncate max-w-[120px]">
                   {furnitureList.find(f => f.id === selectedFurnitureId)?.name}
                 </div>
-                <div className="flex items-center space-x-1.5">
-                  <button
-                    onClick={() => moveSelectedFurniture(-0.2, 0)}
-                    className="p-1.5 rounded-lg glass-btn text-xs text-white"
-                    title="Mover Izquierda"
-                  >
-                    ◀
-                  </button>
-                  <button
-                    onClick={() => moveSelectedFurniture(0.2, 0)}
-                    className="p-1.5 rounded-lg glass-btn text-xs text-white"
-                    title="Mover Derecha"
-                  >
-                    ▶
-                  </button>
-                  <button
-                    onClick={() => moveSelectedFurniture(0, -0.2)}
-                    className="p-1.5 rounded-lg glass-btn text-xs text-white"
-                    title="Mover Fondo"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    onClick={() => moveSelectedFurniture(0, 0.2)}
-                    className="p-1.5 rounded-lg glass-btn text-xs text-white"
-                    title="Mover Frente"
-                  >
-                    ▼
-                  </button>
-                  <button
-                    onClick={() => rotateSelectedFurniture(Math.PI / 4)}
-                    className="p-1.5 rounded-lg glass-btn text-cyan-400"
-                    title="Girar 45°"
-                  >
+                <div className="flex items-center space-x-1">
+                  <button onClick={() => moveSelectedFurniture(-0.25, 0)} className="p-1.5 rounded-lg glass-btn text-xs text-white">◀</button>
+                  <button onClick={() => moveSelectedFurniture(0.25, 0)} className="p-1.5 rounded-lg glass-btn text-xs text-white">▶</button>
+                  <button onClick={() => moveSelectedFurniture(0, -0.25)} className="p-1.5 rounded-lg glass-btn text-xs text-white">▲</button>
+                  <button onClick={() => moveSelectedFurniture(0, 0.25)} className="p-1.5 rounded-lg glass-btn text-xs text-white">▼</button>
+                  <button onClick={() => rotateSelectedFurniture(Math.PI / 4)} className="p-1.5 rounded-lg glass-btn text-cyan-400">
                     <RotateCw className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={() => removeFurniture(selectedFurnitureId)}
-                    className="p-1.5 rounded-lg glass-btn text-red-400 hover:text-red-300"
-                    title="Eliminar"
-                  >
+                  <button onClick={() => removeFurniture(selectedFurnitureId)} className="p-1.5 rounded-lg glass-btn text-red-400">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -945,77 +940,66 @@ export function SimulationViewer({ scanData, onBackToScan }) {
           </div>
         )}
 
-        {/* Tab 3: Dimensions & CAD Stats */}
+        {/* Tab 4: CAD Dimensions & Tape Measure */}
         {activeTab === 'stats' && (
           <div className="p-4 flex flex-col space-y-3">
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
-                <div className="text-[10px] text-slate-400 font-semibold uppercase">Ancho</div>
-                <div className="text-base font-bold text-cyan-400 font-mono">{bounds.width} m</div>
-                <div className="text-[10px] text-slate-500 font-mono">{(bounds.width * 3.28084).toFixed(1)} ft</div>
+              <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 font-semibold uppercase">Ancho</div>
+                <div className="text-sm font-bold text-cyan-400 font-mono">{bounds.width} m</div>
               </div>
-              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
-                <div className="text-[10px] text-slate-400 font-semibold uppercase">Largo</div>
-                <div className="text-base font-bold text-cyan-400 font-mono">{bounds.length} m</div>
-                <div className="text-[10px] text-slate-500 font-mono">{(bounds.length * 3.28084).toFixed(1)} ft</div>
+              <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 font-semibold uppercase">Largo</div>
+                <div className="text-sm font-bold text-cyan-400 font-mono">{bounds.length} m</div>
               </div>
-              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
-                <div className="text-[10px] text-slate-400 font-semibold uppercase">Altura</div>
-                <div className="text-base font-bold text-cyan-400 font-mono">{bounds.height} m</div>
-                <div className="text-[10px] text-slate-500 font-mono">{(bounds.height * 3.28084).toFixed(1)} ft</div>
+              <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 font-semibold uppercase">Altura</div>
+                <div className="text-sm font-bold text-cyan-400 font-mono">{bounds.height} m</div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-center">
-              <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30">
-                <div className="text-[10px] text-cyan-300 font-semibold uppercase">Superficie de Planta</div>
-                <div className="text-lg font-extrabold text-white font-mono">{bounds.area} m²</div>
-                <div className="text-[10px] text-cyan-400/80 font-mono">{(bounds.area * 10.7639).toFixed(1)} sq ft</div>
+              <div className="p-2 rounded-xl bg-cyan-950/40 border border-cyan-500/30">
+                <div className="text-[9px] text-cyan-300 font-semibold uppercase">Superficie Útil</div>
+                <div className="text-base font-extrabold text-white font-mono">{bounds.area} m²</div>
               </div>
-              <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30">
-                <div className="text-[10px] text-cyan-300 font-semibold uppercase">Volumen Total</div>
-                <div className="text-lg font-extrabold text-white font-mono">{bounds.volume} m³</div>
-                <div className="text-[10px] text-cyan-400/80 font-mono">{(bounds.volume * 35.3147).toFixed(1)} cu ft</div>
+              <div className="p-2 rounded-xl bg-cyan-950/40 border border-cyan-500/30">
+                <div className="text-[9px] text-cyan-300 font-semibold uppercase">Volumen</div>
+                <div className="text-base font-extrabold text-white font-mono">{bounds.volume} m³</div>
               </div>
             </div>
 
-            {/* Toggle Measure Tool */}
             <button
               onClick={() => {
                 setMeasureMode(!measureMode);
                 setMeasurePoints([]);
                 setMeasuredDistance(null);
               }}
-              className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 border transition ${
-                measureMode 
-                  ? 'bg-cyan-500 text-white border-cyan-400' 
-                  : 'glass-btn text-cyan-300 border-cyan-500/30'
+              className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 border transition ${
+                measureMode ? 'bg-cyan-500 text-white border-cyan-400' : 'glass-btn text-cyan-300 border-cyan-500/30'
               }`}
             >
               <Ruler className="w-4 h-4" />
-              <span>{measureMode ? 'Desactivar Cinta Métrica' : 'Activar Cinta Métrica 3D (Medir Puntos)'}</span>
+              <span>{measureMode ? 'Desactivar Cinta Métrica' : 'Activar Cinta Métrica (Tocar 2 Puntos)'}</span>
             </button>
           </div>
         )}
 
-        {/* Tab 4: Export Formats */}
+        {/* Tab 5: Export Formats */}
         {activeTab === 'export' && (
           <div className="p-4 flex flex-col space-y-2.5">
-            <div className="text-xs font-semibold text-slate-300 mb-1">
-              Descargar Archivos del Modelo 3D:
-            </div>
             <div className="grid grid-cols-3 gap-2">
               <button
-                onClick={handleExportOBJ}
+                onClick={() => Exporter.exportOBJ(bounds, `${scanData.name || 'scan'}.obj`)}
                 className="py-3 px-2 rounded-xl glass-btn hover:border-cyan-400/60 flex flex-col items-center justify-center space-y-1"
               >
                 <Box className="w-5 h-5 text-cyan-400" />
                 <span className="text-xs font-bold text-white">.OBJ Mesh</span>
-                <span className="text-[9px] text-slate-400">Blender / CAD</span>
+                <span className="text-[9px] text-slate-400">Blender / 3D</span>
               </button>
 
               <button
-                onClick={handleExportPLY}
+                onClick={() => Exporter.exportPLY(points, `${scanData.name || 'scan'}.ply`)}
                 className="py-3 px-2 rounded-xl glass-btn hover:border-cyan-400/60 flex flex-col items-center justify-center space-y-1"
               >
                 <Sparkles className="w-5 h-5 text-indigo-400" />
@@ -1024,7 +1008,12 @@ export function SimulationViewer({ scanData, onBackToScan }) {
               </button>
 
               <button
-                onClick={handleExportJSON}
+                onClick={() => Exporter.exportSimulationJSON({
+                  scan: scanData,
+                  furniture: furnitureList.map(f => ({ type: f.type, position: f.position, rotationY: f.rotationY })),
+                  lighting: { timeOfDay, lightsOn, lightTemp },
+                  aiObjects: aiDetectedObjects
+                }, `${scanData.name || 'scan'}-sim.json`)}
                 className="py-3 px-2 rounded-xl glass-btn hover:border-cyan-400/60 flex flex-col items-center justify-center space-y-1"
               >
                 <Download className="w-5 h-5 text-emerald-400" />
