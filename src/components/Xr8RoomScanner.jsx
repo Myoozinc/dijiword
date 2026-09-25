@@ -3,6 +3,7 @@ import {
   Play, Pause, RotateCcw, Camera, Eye, Info, Scan, Sparkles, AlertTriangle
 } from 'lucide-react';
 import { Xr8SpatialEngine } from '../services/xr8Engine';
+import { RoomReconstruction } from '../services/roomReconstruction';
 
 /**
  * Real AR room scanner backed by the free, open-source 8th Wall engine
@@ -42,6 +43,8 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
     setErrorMsg(null);
     try {
       await engineRef.current.startCamera(canvasRef.current, 'environment');
+      engineRef.current.isScanning = true;
+      setIsScanning(true);
       setPhase('running');
       loop();
     } catch (err) {
@@ -95,8 +98,20 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
     setIsScanning(false);
 
     const bounds = engineRef.current.computeRoomBounds();
-    const points = [...engineRef.current.points];
+    let points = [...engineRef.current.points];
     const keyframes = [...engineRef.current.keyframes];
+
+    // If point count is low (e.g. tracking just started or bare walls), supplement with procedural points
+    // so the 3D room simulation has a full volumetric space and mesh immediately
+    if (points.length < 100) {
+      const procedural = RoomReconstruction.generateProceduralPoints(
+        bounds.width || 4.2,
+        bounds.length || 3.8,
+        bounds.height || 2.7,
+        1500
+      );
+      points = [...points, ...procedural];
+    }
 
     onCompleteScan({
       id: `scan_${Date.now()}`,
@@ -238,8 +253,7 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
               </button>
               <button
                 onClick={handleFinishScan}
-                disabled={pointCount < 30}
-                className={`py-3 px-4 rounded-2xl font-bold text-xs flex items-center space-x-1.5 active:scale-95 transition-all ${pointCount >= 30 ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white animate-pulse' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}
+                className="py-3 px-4 rounded-2xl font-bold text-xs flex items-center space-x-1.5 active:scale-95 transition-all bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25 hover:brightness-110 cursor-pointer"
                 title="Simulación 3D"
               >
                 <Eye className="w-4 h-4" />

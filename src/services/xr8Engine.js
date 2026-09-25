@@ -85,6 +85,7 @@ export class Xr8SpatialEngine {
     this.canvas = null;
 
     this.points = []; // {x,y,z,r,g,b} — REAL tracked points from XrController
+    this.cameraTrajectory = [];
     this.keyframes = [];
     this.isScanning = false;
 
@@ -138,8 +139,16 @@ export class Xr8SpatialEngine {
             this.deviceAngle = quaternionToEuler(reality.rotation);
           }
 
-          if (this.isScanning && reality.trackingStatus === 'NORMAL' && Array.isArray(reality.worldPoints)) {
-            this._ingestWorldPoints(reality.worldPoints);
+          if (reality.position) {
+            this.cameraPosition = reality.position;
+            if (this.isScanning) {
+              this._recordCameraPosition(reality.position);
+            }
+          }
+
+          const rawPoints = reality.worldPoints || reality.points || reality.featurePoints || reality.surfacePoints;
+          if (this.isScanning && rawPoints && (Array.isArray(rawPoints) || rawPoints.length > 0)) {
+            this._ingestWorldPoints(rawPoints);
           }
         }
       };
@@ -154,6 +163,18 @@ export class Xr8SpatialEngine {
           XR8.XrController.pipelineModule(),       // real 6DoF SLAM/VIO tracking
           bridgeModule
         ]);
+
+        // CRITICAL: Configure XrController to output real 3D SLAM world points!
+        if (XR8.XrController && typeof XR8.XrController.configure === 'function') {
+          try {
+            XR8.XrController.configure({
+              enableWorldPoints: true,
+              enableLighting: true
+            });
+          } catch (cfgErr) {
+            console.warn('XrController configure error:', cfgErr);
+          }
+        }
 
         XR8.run({
           canvas: canvasEl,
@@ -299,6 +320,20 @@ export class Xr8SpatialEngine {
     return keyframe;
   }
 
+  _recordCameraPosition(pos) {
+    if (!pos || typeof pos.x !== 'number') return;
+    const len = this.cameraTrajectory.length;
+    if (len > 0) {
+      const last = this.cameraTrajectory[len - 1];
+      const dx = last.x - pos.x, dy = last.y - pos.y, dz = last.z - pos.z;
+      if (dx * dx + dy * dy + dz * dz < 0.05 * 0.05) return;
+    }
+    this.cameraTrajectory.push({ x: Number(pos.x.toFixed(3)), y: Number(pos.y.toFixed(3)), z: Number(pos.z.toFixed(3)) });
+    if (this.cameraTrajectory.length > 3000) {
+      this.cameraTrajectory.shift();
+    }
+  }
+
   async toggleTorch() {
     // Not exposed through a documented 8th Wall API — intentionally a no-op
     // rather than a fake success. See file header note.
@@ -308,14 +343,41 @@ export class Xr8SpatialEngine {
 
   resetScan() {
     this.points = [];
+    this.cameraTrajectory = [];
     this.keyframes = [];
     this._seenSectorPoints = { floor: 0, ceiling: 0, north: 0, south: 0, east: 0, west: 0 };
     this.coverage = { floor: 0, ceiling: 0, north: 0, south: 0, east: 0, west: 0, total: 0 };
   }
 
-  /** Identical percentile-based box fit to SpatialEngine, now run on real points. */
+  /** Identical percentile-based box fit to SpatialEngine, now run on real points or camera trajectory. */
   computeRoomBounds() {
     if (this.points.length < 20) {
+      // If we have camera trajectory history from the user walking around the room,
+      // use that to infer realistic room dimensions
+      if (this.cameraTrajectory.length >= 6) {
+        const xs = this.cameraTrajectory.map(p => p.x);
+        const zs = this.cameraTrajectory.map(p => p.z);
+        const minX = Math.min(...xs) - 1.2;
+        const maxX = Math.max(...xs) + 1.2;
+        const minZ = Math.min(...zs) - 1.2;
+        const maxZ = Math.max(...zs) + 1.2;
+        const width = Math.max(2.8, Number((maxX - minX).toFixed(2)));
+        const length = Math.max(2.8, Number((maxZ - minZ).toFixed(2)));
+        const height = 2.7;
+        const area = Number((width * length).toFixed(2));
+        const volume = Number((area * height).toFixed(2));
+        return {
+          width, length, height, area, volume,
+          min: { x: Number(minX.toFixed(2)), y: 0, z: Number(minZ.toFixed(2)) },
+          max: { x: Number(maxX.toFixed(2)), y: height, z: Number(maxZ.toFixed(2)) },
+          center: {
+            x: Number(((minX + maxX) / 2).toFixed(2)),
+            y: Number((height / 2).toFixed(2)),
+            z: Number(((minZ + maxZ) / 2).toFixed(2))
+          }
+        };
+      }
+
       return {
         width: 4.2, length: 3.8, height: 2.7, area: 15.96, volume: 43.09,
         min: { x: -2.1, y: 0, z: -1.9 }, max: { x: 2.1, y: 2.7, z: 1.9 },

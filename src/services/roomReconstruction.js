@@ -378,11 +378,12 @@ export class RoomReconstruction {
    * Eliminates distorted slopes, fills floor cleanly, and models real elevation steps
    */
   static buildDenseSurfaceMesh(points, bounds) {
-    if (!points || points.length < 30) return new THREE.Group();
+    if (!bounds || !bounds.min || !bounds.max) return new THREE.Group();
 
     const group = new THREE.Group();
     group.name = 'DenseSurfaceMeshGroup';
 
+    const safePoints = Array.isArray(points) ? points : [];
     const { min, max } = bounds;
     const gridResX = 60;
     const gridResZ = 60;
@@ -402,7 +403,7 @@ export class RoomReconstruction {
     // Exclude extreme ceiling outliers (above 85% room height) from floor surface topography
     const maxSurfaceHeight = Math.min(2.4, bounds.height * 0.85);
 
-    for (const p of points) {
+    for (const p of safePoints) {
       if (p.y > maxSurfaceHeight) continue; // Skip ceiling points for floor surface
 
       const gx = Math.floor((p.x - min.x) / stepX);

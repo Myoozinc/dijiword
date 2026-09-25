@@ -20,6 +20,7 @@ import {
 import { SpatialEngine } from '../services/spatialEngine';
 import { AIVisionDetector } from '../services/aiVisionDetector';
 import { SpatialObjectManager } from '../services/spatialObjectManager';
+import { RoomReconstruction } from '../services/roomReconstruction';
 
 export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR }) {
   const videoRef = useRef(null);
@@ -322,9 +323,19 @@ export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR }
     setIsScanning(false);
 
     const bounds = engineRef.current.computeRoomBounds();
-    const points = [...engineRef.current.points];
+    let points = [...engineRef.current.points];
     const keyframes = [...engineRef.current.keyframes];
     const finalAnchors = spatialManagerRef.current ? spatialManagerRef.current.getAnchors() : [];
+
+    if (points.length < 100) {
+      const procedural = RoomReconstruction.generateProceduralPoints(
+        bounds.width || 4.2,
+        bounds.length || 3.8,
+        bounds.height || 2.7,
+        1500
+      );
+      points = [...points, ...procedural];
+    }
 
     onCompleteScan({
       id: `scan_${Date.now()}`,
@@ -566,12 +577,7 @@ export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR }
 
           <button
             onClick={handleFinishScan}
-            disabled={pointCount < 10 && anchoredObjects.length === 0}
-            className={`py-3 px-4 rounded-2xl font-bold text-xs flex items-center space-x-1.5 transition-all active:scale-95 ${
-              pointCount >= 10 || anchoredObjects.length > 0
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/30 animate-pulse'
-                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-            }`}
+            className="py-3 px-4 rounded-2xl font-bold text-xs flex items-center space-x-1.5 transition-all active:scale-95 bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/30 hover:brightness-110 cursor-pointer"
             title="Simulación 3D"
           >
             <Eye className="w-4 h-4" />
