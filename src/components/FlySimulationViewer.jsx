@@ -23,9 +23,16 @@ import {
   GraduationCap,
   Flame,
   RefreshCw,
-  Award
+  Award,
+  Wind,
+  Rocket,
+  Beaker
 } from 'lucide-react';
-import { FlyConnectomeEngine, FlyLearningMemoryEngine } from '../services/flyConnectomeEngine';
+import { 
+  FlyConnectomeEngine, 
+  FlyLearningMemoryEngine, 
+  HOUSEHOLD_ODOR_PRODUCTS 
+} from '../services/flyConnectomeEngine';
 
 export function FlySimulationViewer({ onBackToRoomScanner }) {
   const containerRef = useRef(null);
@@ -41,13 +48,23 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
   const [showDataModal, setShowDataModal] = useState(false);
   const [flyHeadingAngle, setFlyHeadingAngle] = useState(0);
 
-  // Mushroom Body Learning & Synaptic Plasticity Engine
+  // Flight kinematics & aerial status
+  const [isFlying, setIsFlying] = useState(false);
+  const flyWingsRef = useRef(null);
+  const odorPlumeParticlesRef = useRef(null);
+  const flightStateRef = useRef({
+    targetY: 0,
+    flyPhaseTimer: 0,
+    flightSpeed: 0.038
+  });
+
+  // Mushroom Body Learning & Household Odor Olfactory Engine
   const memoryEngineRef = useRef(new FlyLearningMemoryEngine());
   const [showLearningPanel, setShowLearningPanel] = useState(false);
   const [selectedStimulusIdx, setSelectedStimulusIdx] = useState(0);
   const [lastLearningEvent, setLastLearningEvent] = useState(null);
   const [memoryStats, setMemoryStats] = useState({
-    valence: 0,
+    valence: HOUSEHOLD_ODOR_PRODUCTS[0]?.naturalValence || 0.92,
     stm: 0,
     ltm: 0,
     trials: 0,
@@ -224,6 +241,28 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     scene.add(foodGroup);
     foodBeaconRef.current = foodGroup;
 
+    // 3D Scent Vapor Plume Particles over Household Product
+    const plumeCount = 45;
+    const plumePositions = new Float32Array(plumeCount * 3);
+    for (let p = 0; p < plumeCount; p++) {
+      plumePositions[p * 3] = 2.4 + (Math.random() - 0.5) * 0.4;
+      plumePositions[p * 3 + 1] = 0.35 + Math.random() * 1.5;
+      plumePositions[p * 3 + 2] = -2.0 + (Math.random() - 0.5) * 0.4;
+    }
+    const plumeGeo = new THREE.BufferGeometry();
+    plumeGeo.setAttribute('position', new THREE.BufferAttribute(plumePositions, 3));
+    const initialProduct = HOUSEHOLD_ODOR_PRODUCTS[0];
+    const plumeMat = new THREE.PointsMaterial({
+      color: initialProduct?.colorHex || 0xeab308,
+      size: 0.16,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending
+    });
+    const plumeParticles = new THREE.Points(plumeGeo, plumeMat);
+    scene.add(plumeParticles);
+    odorPlumeParticlesRef.current = plumeParticles;
+
     // Arena Floor
     const arenaFloorGeo = new THREE.CylinderGeometry(5.0, 5.0, 0.1, 48);
     const arenaFloorMat = new THREE.MeshStandardMaterial({
@@ -249,9 +288,10 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     scene.add(ringMesh);
 
     // Build Biomechanical Fly Model (FlyGym)
-    const { flyRoot, legNodes } = FlyConnectomeEngine.buildFlyGymModel();
+    const { flyRoot, leftWing, rightWing, legNodes } = FlyConnectomeEngine.buildFlyGymModel();
     flyModelRef.current = flyRoot;
     flyLegsRef.current = legNodes;
+    flyWingsRef.current = { leftWing, rightWing };
     scene.add(flyRoot);
 
     const handleResize = () => {
@@ -310,17 +350,86 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
         rendererRef.current.render(sceneRef.current, cameraRef.current);
       }
 
+      // Animate Scent Vapor Plume Particles over Household Product
+      if (odorPlumeParticlesRef.current) {
+        const pArr = odorPlumeParticlesRef.current.geometry.attributes.position.array;
+        for (let p = 0; p < pArr.length / 3; p++) {
+          pArr[p * 3 + 1] += delta * 0.45; // rise up into air
+          pArr[p * 3] += Math.sin(time * 2.5 + p) * 0.003; // lateral diffusion
+          pArr[p * 3 + 2] += Math.cos(time * 2.5 + p) * 0.003;
+          if (pArr[p * 3 + 1] > 2.2) {
+            const bPos = foodBeaconRef.current ? foodBeaconRef.current.position : new THREE.Vector3(2.4, 0.35, -2.0);
+            pArr[p * 3] = bPos.x + (Math.random() - 0.5) * 0.3;
+            pArr[p * 3 + 1] = bPos.y + 0.1;
+            pArr[p * 3 + 2] = bPos.z + (Math.random() - 0.5) * 0.3;
+          }
+        }
+        odorPlumeParticlesRef.current.geometry.attributes.position.needsUpdate = true;
+      }
+
       // Update Virtual Fly (FlyGym) scene
       if (flyControlsRef.current) flyControlsRef.current.update();
       if (flySceneRef.current && flyCameraRef.current && flyRendererRef.current) {
         if (isRunning && flyModelRef.current && flyLegsRef.current) {
-          // Tripodal gait kinematic locomotion
-          FlyConnectomeEngine.updateTripodGait(flyLegsRef.current, time, firingRateHz / 4.2);
+          // Flight kinematics vs Walking kinematics
+          if (isFlying) {
+            // High-speed wing flutter and aerodynamic leg tucking
+            FlyConnectomeEngine.updateFlightKinematics(flyWingsRef.current, flyLegsRef.current, time, true);
+          } else {
+            // Wing resting and tripodal gait walking
+            FlyConnectomeEngine.updateFlightKinematics(flyWingsRef.current, flyLegsRef.current, time, false);
+            FlyConnectomeEngine.updateTripodGait(flyLegsRef.current, time, firingRateHz / 4.2);
+          }
 
           // Memory decay over time
           memoryEngineRef.current.decayMemory(delta);
 
-          // Fly autonomous exploration: Phototaxis, Mechanosensory, or Learned Associative Memory
+          // Autonomous Free Flight Cycles in "Libre" Status
+          if (activeStimulus === 'none') {
+            flightStateRef.current.flyPhaseTimer += delta;
+            // Alternates: explores on floor for 9s -> takes off to fly for 12s -> lands smoothly
+            if (!isFlying && flightStateRef.current.flyPhaseTimer > 9.0) {
+              setIsFlying(true);
+              flightStateRef.current.flyPhaseTimer = 0;
+              flightStateRef.current.targetY = 1.3 + Math.random() * 0.9;
+            } else if (isFlying && flightStateRef.current.flyPhaseTimer > 12.0) {
+              flightStateRef.current.targetY = 0;
+              if (flyModelRef.current.position.y <= 0.08) {
+                setIsFlying(false);
+                flyModelRef.current.position.y = 0;
+                flightStateRef.current.flyPhaseTimer = 0;
+              }
+            }
+          }
+
+          // 3D Flight Altitude & Aerodynamics Attitude
+          if (isFlying) {
+            flyModelRef.current.position.y = THREE.MathUtils.lerp(
+              flyModelRef.current.position.y,
+              flightStateRef.current.targetY || 1.5,
+              0.045
+            );
+            flyModelRef.current.rotation.x = THREE.MathUtils.lerp(flyModelRef.current.rotation.x, -0.2, 0.06);
+            const flightSpeed = 0.038 * (firingRateHz / 4.2);
+            flyModelRef.current.translateZ(flightSpeed);
+
+            // Turn inwards when approaching arena perimeter
+            const distCenter = Math.sqrt(flyModelRef.current.position.x ** 2 + flyModelRef.current.position.z ** 2);
+            if (distCenter > 3.8) {
+              const inwardAngle = Math.atan2(-flyModelRef.current.position.x, -flyModelRef.current.position.z);
+              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, inwardAngle, 0.06);
+              flyModelRef.current.rotation.z = THREE.MathUtils.lerp(flyModelRef.current.rotation.z, 0.35, 0.08);
+            } else {
+              flyModelRef.current.rotation.z = THREE.MathUtils.lerp(flyModelRef.current.rotation.z, 0, 0.05);
+            }
+          } else {
+            // Ground level recovery
+            flyModelRef.current.position.y = THREE.MathUtils.lerp(flyModelRef.current.position.y, 0, 0.1);
+            flyModelRef.current.rotation.x = THREE.MathUtils.lerp(flyModelRef.current.rotation.x, 0, 0.1);
+            flyModelRef.current.rotation.z = THREE.MathUtils.lerp(flyModelRef.current.rotation.z, 0, 0.1);
+          }
+
+          // Household Odor Olfactory Response or Light Phototaxis
           if (activeStimulus === 'memory' && foodBeaconRef.current) {
             const currentValence = memoryEngineRef.current.getNetValence(selectedStimulusIdx);
             const beaconPos = foodBeaconRef.current.position;
@@ -328,24 +437,31 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             const dist = flyPos.distanceTo(beaconPos);
 
             if (currentValence > 0.1) {
-              // Learned Approach (Positive Valence): Guide fly towards the food beacon
+              // Attraction: Seek and feed on household product (Banana, Vinegar, Yeast, Honey)
+              if (isFlying && dist < 1.8) {
+                flightStateRef.current.targetY = 0; // Prepare landing beside food
+                if (flyPos.y < 0.15) setIsFlying(false);
+              }
               const targetYaw = Math.atan2(beaconPos.x - flyPos.x, beaconPos.z - flyPos.z);
               flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.05);
-              if (dist > 0.8) {
-                flyModelRef.current.translateZ(0.016 * (firingRateHz / 4.2));
+              if (dist > 0.75) {
+                flyModelRef.current.translateZ(isFlying ? 0.035 : 0.016 * (firingRateHz / 4.2));
               }
               setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
             } else if (currentValence < -0.1) {
-              // Learned Avoidance (Negative Valence): Escape away from the beacon
-              const escapeYaw = Math.atan2(flyPos.x - beaconPos.x, flyPos.z - beaconPos.z);
-              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, escapeYaw, 0.06);
-              if (dist < 4.2) {
-                flyModelRef.current.translateZ(0.02 * (firingRateHz / 4.2));
+              // Repulsion: Garlic, Lemon, Soap, Coffee (Emergency Takeoff & Escape flight)
+              if (!isFlying && dist < 3.2) {
+                setIsFlying(true);
+                flightStateRef.current.targetY = 1.8 + Math.random() * 0.6;
               }
+              const escapeYaw = Math.atan2(flyPos.x - beaconPos.x, flyPos.z - beaconPos.z);
+              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, escapeYaw, 0.07);
+              flyModelRef.current.translateZ(isFlying ? 0.045 : 0.022 * (firingRateHz / 4.2));
               setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
             } else {
               // Neutral exploratory wandering
               flyModelRef.current.rotation.y += Math.sin(time * 0.5) * 0.008;
+              if (!isFlying) flyModelRef.current.translateZ(0.012 * (firingRateHz / 4.2));
               setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
             }
           } else if (activeStimulus === 'light' && targetLightRef.current) {
@@ -354,7 +470,6 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             targetLightRef.current.position.x = Math.cos(lightAngle) * 3.2;
             targetLightRef.current.position.z = Math.sin(lightAngle) * 3.2;
 
-            // Turn fly head and body towards light (Closed-loop sensory motor steering)
             const targetYaw = Math.atan2(
               targetLightRef.current.position.x - flyModelRef.current.position.x,
               targetLightRef.current.position.z - flyModelRef.current.position.z
@@ -376,7 +491,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
 
     animId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animId);
-  }, [isRunning, firingRateHz, activeStimulus, selectedStimulusIdx]);
+  }, [isRunning, firingRateHz, activeStimulus, selectedStimulusIdx, isFlying]);
 
   // Trigger virtual dopamine reward burst (as discussed in PDF)
   const triggerDopaminePulse = () => {
@@ -466,7 +581,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     memoryEngineRef.current.reset();
     setLastLearningEvent(null);
     setMemoryStats({
-      valence: 0,
+      valence: HOUSEHOLD_ODOR_PRODUCTS[selectedStimulusIdx]?.naturalValence || 0,
       stm: 0,
       ltm: 0,
       trials: 0,
@@ -474,6 +589,46 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
       weightsAvoidance: [...memoryEngineRef.current.weightsAvoidance]
     });
   };
+
+  const handleSelectOdorProduct = (productIdx) => {
+    setSelectedStimulusIdx(productIdx);
+    setActiveStimulus('memory');
+    const prod = HOUSEHOLD_ODOR_PRODUCTS[productIdx];
+    if (!prod) return;
+
+    // Update food beacon in 3D arena
+    if (foodBeaconRef.current && foodBeaconRef.current.children[0]) {
+      foodBeaconRef.current.children[0].material.color.setHex(prod.colorHex);
+      foodBeaconRef.current.children[0].material.emissive.setHex(prod.emissive);
+    }
+    // Update odor vapor plume particles color
+    if (odorPlumeParticlesRef.current) {
+      odorPlumeParticlesRef.current.material.color.setHex(prod.colorHex);
+    }
+
+    const val = memoryEngineRef.current.getNetValence(productIdx);
+    setMemoryStats(prev => ({
+      ...prev,
+      valence: val
+    }));
+  };
+
+  const toggleFlight = () => {
+    if (isFlying) {
+      // Initiate descent & smooth landing
+      flightStateRef.current.targetY = 0;
+      setTimeout(() => {
+        setIsFlying(false);
+        if (flyModelRef.current) flyModelRef.current.position.y = 0;
+      }, 700);
+    } else {
+      // Initiate vertical takeoff
+      setIsFlying(true);
+      flightStateRef.current.targetY = 1.6;
+    }
+  };
+
+  const currentProduct = HOUSEHOLD_ODOR_PRODUCTS[selectedStimulusIdx] || HOUSEHOLD_ODOR_PRODUCTS[0];
 
   return (
     <div className="relative w-screen h-screen bg-[#060913] text-slate-100 flex flex-col overflow-hidden select-none font-sans">
@@ -611,26 +766,84 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
               : 'hidden'
           }`}
         >
-          {/* FlyGym Telemetry Badge */}
-          <div className="absolute top-3 right-3 z-10 p-2.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-emerald-500/30 min-w-[200px]">
-            <div className="text-[11px] font-bold text-emerald-400 flex items-center space-x-1">
-              <Bug className="w-3.5 h-3.5" />
-              <span>Simulación Física FlyGym (EPFL)</span>
+          {/* Household Odor Testing Palette in Arena */}
+          <div className="absolute top-3 left-3 z-10 p-2.5 rounded-xl bg-slate-900/90 backdrop-blur-md border border-amber-500/40 max-w-[230px] shadow-xl">
+            <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-400 mb-1.5">
+              <Beaker className="w-4 h-4 text-amber-400" />
+              <span>Test Olores Caseros</span>
             </div>
-            <div className="mt-1.5 flex flex-col space-y-1 text-[10px] text-slate-300 font-mono">
+            <select
+              value={selectedStimulusIdx}
+              onChange={(e) => handleSelectOdorProduct(parseInt(e.target.value, 10))}
+              className="w-full bg-slate-950 border border-slate-700 text-white rounded-lg px-2 py-1.5 text-xs font-medium focus:ring-1 focus:ring-amber-400 outline-none cursor-pointer"
+            >
+              {HOUSEHOLD_ODOR_PRODUCTS.map((prod, idx) => (
+                <option key={prod.id} value={idx}>
+                  {prod.icon} {prod.name} ({prod.naturalValence > 0 ? `+${prod.naturalValence}` : `${prod.naturalValence}`})
+                </option>
+              ))}
+            </select>
+            {currentProduct && (
+              <div className="mt-2 text-[10px] text-slate-300 space-y-0.5 font-mono">
+                <div className="text-amber-300 font-semibold truncate">{currentProduct.compound}</div>
+                <div className="text-slate-400">Glomérulo: <span className="text-cyan-400">{currentProduct.glomerulus}</span></div>
+                <div className="text-slate-400">
+                  Reacción: <span className={memoryStats.valence > 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                    {memoryStats.valence > 0 ? "🟢 Atracción" : "🔴 Escape Nociceptivo"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* FlyGym Telemetry & Aerial Flight Badge */}
+          <div className="absolute top-3 right-3 z-10 p-2.5 rounded-xl bg-slate-900/90 backdrop-blur-md border border-emerald-500/30 min-w-[210px] shadow-xl">
+            <div className="text-[11px] font-bold text-emerald-400 flex items-center justify-between">
+              <div className="flex items-center space-x-1">
+                <Bug className="w-3.5 h-3.5" />
+                <span>FlyGym Físico (EPFL)</span>
+              </div>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                isFlying ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300'
+              }`}>
+                {isFlying ? '🚀 EN VUELO 3D' : '🪰 EN SUELO'}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-col space-y-1 text-[10px] text-slate-300 font-mono">
+              <div className="flex justify-between">
+                <span>Altitud 3D:</span>
+                <span className={isFlying ? "text-amber-300 font-bold" : "text-slate-400"}>
+                  {isFlying ? `${(flyModelRef.current?.position.y || 1.6).toFixed(1)} m` : "0.0 m (Suelo)"}
+                </span>
+              </div>
               <div className="flex justify-between">
                 <span>Rumbo (Compass):</span>
                 <span className="text-cyan-400 font-bold">{flyHeadingAngle}°</span>
               </div>
               <div className="flex justify-between">
-                <span>Paso Trípode:</span>
-                <span className="text-emerald-400 font-bold">{firingRateHz.toFixed(1)} Hz</span>
+                <span>Locomoción:</span>
+                <span className="text-emerald-400 font-bold">
+                  {isFlying ? 'Aleteo 200 Hz' : `${firingRateHz.toFixed(1)} Hz (Trípode)`}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span>Estímulo Activo:</span>
-                <span className="text-yellow-300 capitalize">{activeStimulus}</span>
+                <span>Olor Activo:</span>
+                <span className="text-yellow-300 truncate max-w-[100px]">{currentProduct.icon} {currentProduct.name.split(':')[0]}</span>
               </div>
             </div>
+
+            {/* Manual Flight / Land Trigger Button */}
+            <button
+              onClick={toggleFlight}
+              className={`mt-2.5 w-full py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition shadow active:scale-95 ${
+                isFlying
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white animate-pulse'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+              }`}
+            >
+              <Rocket className="w-3.5 h-3.5" />
+              <span>{isFlying ? 'Aterrizar en Suelo' : 'Despegar a Volar 3D'}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -647,6 +860,19 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
           >
             {isRunning ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
             <span>{isRunning ? 'Pausar' : 'Reanudar'}</span>
+          </button>
+
+          <button
+            onClick={toggleFlight}
+            className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition border ${
+              isFlying
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-slate-900 hover:bg-slate-800 text-indigo-300 border-indigo-500/30'
+            }`}
+            title="Alterna entre caminata tripodal terrestre y vuelo 3D con aleteo de alas"
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            <span>{isFlying ? 'Aterrizar' : 'Volar 3D'}</span>
           </button>
 
           <div className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
@@ -752,28 +978,29 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             {/* Stimulus Selector */}
             <div>
               <label className="text-xs font-semibold text-slate-300 mb-1.5 block">
-                1. Selecciona el Estímulo a Condicionar (Olor o Clave Sensorial):
+                1. Selecciona el Producto Casero a Evaluar / Condicionar:
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {memoryEngineRef.current.stimuli.map((st, idx) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {HOUSEHOLD_ODOR_PRODUCTS.map((st, idx) => (
                   <button
                     key={st.id}
-                    onClick={() => {
-                      setSelectedStimulusIdx(idx);
-                      setMemoryStats(prev => ({
-                        ...prev,
-                        valence: memoryEngineRef.current.getNetValence(idx)
-                      }));
-                    }}
+                    onClick={() => handleSelectOdorProduct(idx)}
                     className={`p-2.5 rounded-xl border text-left transition flex flex-col space-y-1 ${
                       selectedStimulusIdx === idx
                         ? 'bg-purple-950/60 border-purple-400 ring-1 ring-purple-400'
                         : 'bg-slate-900 border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    <div className="text-lg">{st.icon}</div>
-                    <div className="text-xs font-bold text-white truncate">{st.name.split(':')[0]}</div>
-                    <div className="text-[10px] text-slate-400 truncate">{st.name.split(':')[1] || ''}</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg">{st.icon}</span>
+                      <span className={`text-[9px] font-mono px-1 rounded ${
+                        st.naturalValence > 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                      }`}>
+                        {st.naturalValence > 0 ? `+${st.naturalValence}` : st.naturalValence}
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-white truncate">{st.name}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{st.compound}</div>
                   </button>
                 ))}
               </div>

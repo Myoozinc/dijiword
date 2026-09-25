@@ -447,32 +447,211 @@ export class FlyConnectomeEngine {
       leg.tibiaGroup.rotation.z = (-leg.side * 0.75) + (lift * 0.35);
     });
   }
+
+  /**
+   * Updates 3D flight kinematics and high-frequency wing beat flutter
+   * (Drosophila wing beat frequency ~200Hz, rendered as fast trigonometric flutter)
+   */
+  static updateFlightKinematics(wings, legNodes, timeSec, isFlying) {
+    if (!wings) return;
+    const { leftWing, rightWing } = wings;
+
+    if (isFlying) {
+      // High-speed wing oscillation during flight
+      const wingBeatFreq = 50.0; // Rendered visual frequency
+      const stroke = Math.sin(timeSec * wingBeatFreq) * 0.85;
+      const pitch = Math.cos(timeSec * wingBeatFreq) * 0.28;
+
+      if (leftWing) {
+        leftWing.rotation.z = 0.45 + stroke;
+        leftWing.rotation.x = Math.PI / 2 - 0.2 + pitch;
+      }
+      if (rightWing) {
+        rightWing.rotation.z = -0.45 - stroke;
+        rightWing.rotation.x = Math.PI / 2 - 0.2 + pitch;
+      }
+
+      // In flight, legs retract and tuck into a streamlined aerodynamic posture
+      if (legNodes) {
+        Object.values(legNodes).forEach(leg => {
+          leg.femurGroup.rotation.y = THREE.MathUtils.lerp(leg.femurGroup.rotation.y, 0, 0.1);
+          leg.femurGroup.rotation.z = THREE.MathUtils.lerp(leg.femurGroup.rotation.z, leg.side * 1.35, 0.1);
+          leg.tibiaGroup.rotation.z = THREE.MathUtils.lerp(leg.tibiaGroup.rotation.z, -leg.side * 1.15, 0.1);
+        });
+      }
+    } else {
+      // When walking or resting, wings fold back smoothly across the abdomen
+      if (leftWing) {
+        leftWing.rotation.z = THREE.MathUtils.lerp(leftWing.rotation.z, 0.25, 0.1);
+        leftWing.rotation.x = THREE.MathUtils.lerp(leftWing.rotation.x, Math.PI / 2 - 0.1, 0.1);
+      }
+      if (rightWing) {
+        rightWing.rotation.z = THREE.MathUtils.lerp(rightWing.rotation.z, -0.25, 0.1);
+        rightWing.rotation.x = THREE.MathUtils.lerp(rightWing.rotation.x, Math.PI / 2 - 0.1, 0.1);
+      }
+    }
+  }
 }
+
+/**
+ * Palette of Household Odorous Products for Scent Testing
+ * Real biological olfaction profiles for Drosophila melanogaster
+ */
+export const HOUSEHOLD_ODOR_PRODUCTS = [
+  {
+    id: 'banana_ripe',
+    name: 'Plátano Maduro',
+    icon: '🍌',
+    compound: 'Acetato de Isoamilo / Etanol',
+    category: 'Fruta Fermentada',
+    color: '#eab308',
+    colorHex: 0xeab308,
+    emissive: 0xca8a04,
+    naturalValence: 0.92,
+    kcPattern: [1, 0, 1, 0, 0, 1, 0, 0],
+    reactionType: 'attraction',
+    glomerulus: 'DM1 / DM4 (Or42b)',
+    description: 'Atracción extrema apetitiva. Señal de azúcar y nutrición inmediata. Estimula vuelo de aproximación y extensión de probóscide.'
+  },
+  {
+    id: 'apple_vinegar',
+    name: 'Vinagre de Manzana',
+    icon: '🍷',
+    compound: 'Ácido Acético (AcA) / Acetato de Etilo',
+    category: 'Fermentación Ácida',
+    color: '#ef4444',
+    colorHex: 0xef4444,
+    emissive: 0xb91c1c,
+    naturalValence: 0.85,
+    kcPattern: [1, 1, 0, 0, 0, 1, 0, 0],
+    reactionType: 'attraction',
+    glomerulus: 'VA2 / DM1 (Or42b, Or92a)',
+    description: 'Fuerte atractivo olfativo. Indica fermentación acética activa, hábitat clásico de ovoposición y alimentación.'
+  },
+  {
+    id: 'bread_yeast',
+    name: 'Levadura de Pan',
+    icon: '🍞',
+    compound: 'Trehalosa / 2-Feniletanol / Etanol',
+    category: 'Levadura & Nutrición',
+    color: '#d97706',
+    colorHex: 0xd97706,
+    emissive: 0xb45309,
+    naturalValence: 0.88,
+    kcPattern: [0, 1, 1, 0, 0, 0, 1, 0],
+    reactionType: 'attraction',
+    glomerulus: 'VM2 / VA1v',
+    description: 'Atracción proteica vital. Las moscas necesitan levadura para ovogénesis y síntesis de aminoácidos.'
+  },
+  {
+    id: 'honey_sugar',
+    name: 'Miel & Azúcar',
+    icon: '🍯',
+    compound: 'Sacarosa / Fructosa / Glucosa',
+    category: 'Carbohidratos Puros',
+    color: '#f59e0b',
+    colorHex: 0xf59e0b,
+    emissive: 0xd97706,
+    naturalValence: 0.95,
+    kcPattern: [1, 0, 0, 1, 0, 1, 0, 0],
+    reactionType: 'attraction',
+    glomerulus: 'Gr5a (Gnatál / SEZ)',
+    description: 'Recompensa gustativa máxima. Desencadena danza de alimentación y extensión completa del aparato bucal.'
+  },
+  {
+    id: 'lemon_citrus',
+    name: 'Cáscara de Limón',
+    icon: '🍋',
+    compound: 'D-Limoneno / Citral',
+    category: 'Cítrico Repelente',
+    color: '#84cc16',
+    colorHex: 0x84cc16,
+    emissive: 0x65a30d,
+    naturalValence: -0.65,
+    kcPattern: [0, 0, 0, 1, 1, 0, 0, 1],
+    reactionType: 'repulsion',
+    glomerulus: 'Or85a / DL5',
+    description: 'Repelente natural. El limoneno es tóxico para larvas y ahuyenta a la mosca adulta mediante reflejo aversivo.'
+  },
+  {
+    id: 'ground_coffee',
+    name: 'Café Molido',
+    icon: '☕',
+    compound: 'Cafeína / 2-Etilpirazina / Amargor',
+    category: 'Amargo / Inhibidor',
+    color: '#78350f',
+    colorHex: 0x78350f,
+    emissive: 0x451a03,
+    naturalValence: -0.50,
+    kcPattern: [0, 1, 0, 0, 1, 0, 1, 0],
+    reactionType: 'repulsion',
+    glomerulus: 'Gr66a (Receptores amargos)',
+    description: 'Rechazo por amargor. La cafeína actúa como insecticida natural en altas concentraciones; inhibe la puesta de huevos.'
+  },
+  {
+    id: 'crushed_garlic',
+    name: 'Ajo Picado',
+    icon: '🧄',
+    compound: 'Alacina / Disulfuro de Dialilo',
+    category: 'Irritante Sulfurador',
+    color: '#f8fafc',
+    colorHex: 0xf8fafc,
+    emissive: 0x94a3b8,
+    naturalValence: -0.88,
+    kcPattern: [0, 0, 0, 0, 1, 0, 1, 1],
+    reactionType: 'repulsion',
+    glomerulus: 'TRPA1 (Quimiosensorial nociceptivo)',
+    description: 'Fuerte repelente nociceptivo. Los vapores sulfurados activan canales de dolor celular (TRPA1); provoca despegue y escape inmediato.'
+  },
+  {
+    id: 'lavender_soap',
+    name: 'Jabón de Lavanda',
+    icon: '🧼',
+    compound: 'Linalool / Tensoactivos sintéticos',
+    category: 'Limpieza / Químico',
+    color: '#c084fc',
+    colorHex: 0xc084fc,
+    emissive: 0x9333ea,
+    naturalValence: -0.72,
+    kcPattern: [0, 0, 1, 0, 1, 0, 0, 1],
+    reactionType: 'repulsion',
+    glomerulus: 'Or67a / Or10a',
+    description: 'Repulsión química. Altera la tensión superficial de los tarsos e induce desorientación olfativa.'
+  },
+  {
+    id: 'fresh_mint',
+    name: 'Menta Fresca',
+    icon: '🌿',
+    compound: 'Mentol / 1,8-Cineol',
+    category: 'Aromático / Repelente',
+    color: '#10b981',
+    colorHex: 0x10b981,
+    emissive: 0x059669,
+    naturalValence: -0.60,
+    kcPattern: [0, 0, 0, 1, 0, 1, 1, 0],
+    reactionType: 'repulsion',
+    glomerulus: 'TRPM8 / Or49a',
+    description: 'Repulsión térmica sensorial. El mentol activa termorreceptores de frío/química, alejando a la mosca de la columna de aire.'
+  }
+];
 
 /**
  * Biologically Realistic Drosophila Mushroom Body Associative Learning Engine
  * ============================================================================
  * Implements the canonical Kenyon Cell (KC) -> MBON synaptic plasticity circuit
  * gated by Dopaminergic Neurons (PAM cluster = Reward, PPL1 cluster = Punishment).
- * Based on Aso et al. (eLife 2014), Hige et al. (Nature 2015), and MaleCNS connectomics.
  */
 export class FlyLearningMemoryEngine {
   constructor() {
-    // 4 canonical olfactory & sensory conditioned stimuli (CS)
-    this.stimuli = [
-      { id: 'odor_apple', name: 'Olor A: Manzana Dulce (Acetato de Etilo)', icon: '🍎', color: '#10b981', kcPattern: [1, 0, 1, 0, 0, 1, 0, 0] },
-      { id: 'odor_almond', name: 'Olor B: Almendra (Benzaldehído)', icon: '🌰', color: '#f59e0b', kcPattern: [0, 1, 0, 1, 1, 0, 0, 0] },
-      { id: 'light_blue', name: 'Luz Azul (Fototaxis Corta)', icon: '💡', color: '#06b6d4', kcPattern: [0, 0, 1, 1, 0, 0, 1, 0] },
-      { id: 'heat_zone', name: 'Zona Térmica / Peligro', icon: '🔥', color: '#ef4444', kcPattern: [0, 0, 0, 0, 1, 0, 1, 1] }
-    ];
+    this.stimuli = HOUSEHOLD_ODOR_PRODUCTS;
 
     // Synaptic weights from 8 Kenyon Cell clusters to MBON populations
-    // In naive flies, approach and avoidance are balanced (initial weight = 0.5)
+    // In naive flies, initial weights are neutral (0.5)
     this.weightsApproach = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
     this.weightsAvoidance = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
 
     // Learning parameters
-    this.learningRate = 0.22;
+    this.learningRate = 0.24;
     this.minWeight = 0.05;
     this.maxWeight = 0.95;
 
@@ -560,9 +739,11 @@ export class FlyLearningMemoryEngine {
       }
     });
 
-    if (count === 0) return 0;
-    const net = (approachDrive - avoidanceDrive) / count;
-    return parseFloat(net.toFixed(2));
+    const learnedNet = count > 0 ? (approachDrive - avoidanceDrive) / count : 0;
+    const baseline = stimulus.naturalValence || 0;
+    // When naive (0 trials), express innate biological valence; with trials, experience modulates valence
+    const combined = this.trialsCount === 0 ? baseline : (baseline * 0.3 + learnedNet * 0.7);
+    return parseFloat(combined.toFixed(2));
   }
 
   /**
