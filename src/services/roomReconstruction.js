@@ -399,19 +399,24 @@ export class RoomReconstruction {
     const countGrid = new Uint16Array(cellCount);
     const sumYGrid = new Float32Array(cellCount);
 
-    // Filter points and bin into grid
-    // Exclude extreme ceiling outliers (above 85% room height) from floor surface topography
-    const maxSurfaceHeight = Math.min(2.4, bounds.height * 0.85);
+    // CRITICAL: Floor topography ONLY.
+    // Wall points belong to vertical walls, not the floor.
+    // Filter out points near perimeter walls or higher than 0.30m
+    const marginX = (max.x - min.x) * 0.08;
+    const marginZ = (max.z - min.z) * 0.08;
+    const maxSurfaceHeight = 0.30;
 
     for (const p of safePoints) {
-      if (p.y > maxSurfaceHeight) continue; // Skip ceiling points for floor surface
+      if (p.y > maxSurfaceHeight) continue; // Skip all wall/ceiling points
+      if (p.x < min.x + marginX || p.x > max.x - marginX) continue; // Skip perimeter wall points
+      if (p.z < min.z + marginZ || p.z > max.z - marginZ) continue; // Skip perimeter wall points
 
       const gx = Math.floor((p.x - min.x) / stepX);
       const gz = Math.floor((p.z - min.z) / stepZ);
 
       if (gx >= 0 && gx < gridResX && gz >= 0 && gz < gridResZ) {
         const idx = gz * gridResX + gx;
-        const py = Math.max(0, p.y);
+        const py = Math.max(0, Math.min(0.18, p.y));
         sumYGrid[idx] += py;
         colorGridR[idx] += (p.r ?? 0.6);
         colorGridG[idx] += (p.g ?? 0.6);
@@ -425,10 +430,10 @@ export class RoomReconstruction {
     const defaultFloorG = 0.32;
     const defaultFloorB = 0.38;
 
-    // Compute cell heights & colors
+    // Compute cell heights & colors cleanly (clamped to max 0.15m)
     for (let i = 0; i < cellCount; i++) {
       if (countGrid[i] > 0) {
-        heightGrid[i] = Number((sumYGrid[i] / countGrid[i]).toFixed(3));
+        heightGrid[i] = Math.min(0.15, Number((sumYGrid[i] / countGrid[i]).toFixed(3)));
         colorGridR[i] = Number((colorGridR[i] / countGrid[i]).toFixed(3));
         colorGridG[i] = Number((colorGridG[i] / countGrid[i]).toFixed(3));
         colorGridB[i] = Number((colorGridB[i] / countGrid[i]).toFixed(3));
@@ -461,10 +466,7 @@ export class RoomReconstruction {
       }
     }
 
-    // Triangulate grid with smart elevation step handling
-    // If delta Y between adjacent cells is large (> 0.40m), do NOT create stretched slanting triangles
-    const maxSlopeDelta = 0.40;
-
+    // Triangulate grid cleanly — NO VERTICAL ICICLE SKIRTS
     for (let gz = 0; gz < gridResZ - 1; gz++) {
       for (let gx = 0; gx < gridResX - 1; gx++) {
         const i0 = vertMap[gz * gridResX + gx];
@@ -472,54 +474,8 @@ export class RoomReconstruction {
         const i2 = vertMap[(gz + 1) * gridResX + gx];
         const i3 = vertMap[(gz + 1) * gridResX + (gx + 1)];
 
-        const y0 = vertices[i0 * 3 + 1];
-        const y1 = vertices[i1 * 3 + 1];
-        const y2 = vertices[i2 * 3 + 1];
-        const y3 = vertices[i3 * 3 + 1];
-
-        // Triangle 1: (i0, i2, i1)
-        const d01 = Math.abs(y0 - y1);
-        const d02 = Math.abs(y0 - y2);
-        const d12 = Math.abs(y1 - y2);
-
-        if (d01 <= maxSlopeDelta && d02 <= maxSlopeDelta && d12 <= maxSlopeDelta) {
-          indices.push(i0, i2, i1);
-        }
-
-        // Triangle 2: (i1, i2, i3)
-        const d13 = Math.abs(y1 - y3);
-        const d23 = Math.abs(y2 - y3);
-
-        if (d13 <= maxSlopeDelta && d23 <= maxSlopeDelta && d12 <= maxSlopeDelta) {
-          indices.push(i1, i2, i3);
-        }
-
-        // Vertical step skirts: If cell is elevated and neighbor is at ground level, create vertical wall face
-        // Edge 0->1
-        if (d01 > maxSlopeDelta) {
-          const vFloorA = vertIndex++;
-          const vFloorB = vertIndex++;
-          vertices.push(vertices[i0 * 3], 0, vertices[i0 * 3 + 2]);
-          colors.push(colorGridR[gz * gridResX + gx] * 0.8, colorGridG[gz * gridResX + gx] * 0.8, colorGridB[gz * gridResX + gx] * 0.8);
-          vertices.push(vertices[i1 * 3], 0, vertices[i1 * 3 + 2]);
-          colors.push(colorGridR[gz * gridResX + (gx + 1)] * 0.8, colorGridG[gz * gridResX + (gx + 1)] * 0.8, colorGridB[gz * gridResX + (gx + 1)] * 0.8);
-
-          indices.push(i0, vFloorA, i1);
-          indices.push(i1, vFloorA, vFloorB);
-        }
-
-        // Edge 0->2
-        if (d02 > maxSlopeDelta) {
-          const vFloorA = vertIndex++;
-          const vFloorB = vertIndex++;
-          vertices.push(vertices[i0 * 3], 0, vertices[i0 * 3 + 2]);
-          colors.push(colorGridR[gz * gridResX + gx] * 0.8, colorGridG[gz * gridResX + gx] * 0.8, colorGridB[gz * gridResX + gx] * 0.8);
-          vertices.push(vertices[i2 * 3], 0, vertices[i2 * 3 + 2]);
-          colors.push(colorGridR[(gz + 1) * gridResX + gx] * 0.8, colorGridG[(gz + 1) * gridResX + gx] * 0.8, colorGridB[(gz + 1) * gridResX + gx] * 0.8);
-
-          indices.push(i0, i2, vFloorA);
-          indices.push(i2, vFloorB, vFloorA);
-        }
+        indices.push(i0, i2, i1);
+        indices.push(i1, i2, i3);
       }
     }
 

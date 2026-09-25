@@ -77,7 +77,8 @@ export class AIVisionDetector {
    * Detect objects in current video frame with depth & texture extraction
    */
   async detectFrame(video, roomBounds = null, cameraAngles = { pitch: 0, yaw: 0 }) {
-    if (!video || video.readyState < 2) return this.cachedDetections;
+    if (!video) return this.cachedDetections;
+    if (typeof video.readyState === 'number' && video.readyState < 2) return this.cachedDetections;
 
     const now = performance.now();
     if (now - this.lastDetectionTime < this.detectionInterval) {
@@ -85,8 +86,8 @@ export class AIVisionDetector {
     }
     this.lastDetectionTime = now;
 
-    const vw = video.videoWidth || 640;
-    const vh = video.videoHeight || 480;
+    const vw = video.videoWidth || video.width || 640;
+    const vh = video.videoHeight || video.height || 480;
 
     let predictions = [];
 

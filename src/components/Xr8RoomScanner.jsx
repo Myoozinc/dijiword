@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Play, Pause, RotateCcw, Camera, Eye, Info, Scan, Sparkles, AlertTriangle
+  Play, Pause, RotateCcw, Camera, Eye, Info, Scan, Sparkles, AlertTriangle, Box
 } from 'lucide-react';
 import { Xr8SpatialEngine } from '../services/xr8Engine';
 import { RoomReconstruction } from '../services/roomReconstruction';
+import { AIVisionDetector } from '../services/aiVisionDetector';
+import { SpatialObjectManager } from '../services/spatialObjectManager';
 
 /**
  * Real AR room scanner backed by the free, open-source 8th Wall engine
@@ -18,6 +20,8 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const rafRef = useRef(null);
+  const aiDetectorRef = useRef(null);
+  const spatialManagerRef = useRef(null);
 
   const [phase, setPhase] = useState('idle'); // idle | starting | running | error
   const [errorMsg, setErrorMsg] = useState(null);
@@ -26,9 +30,13 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
   const [coverage, setCoverage] = useState({ floor: 0, ceiling: 0, north: 0, south: 0, east: 0, west: 0, total: 0 });
   const [trackingStatus, setTrackingStatus] = useState('INITIALIZING');
   const [keyframeCount, setKeyframeCount] = useState(0);
+  const [anchoredObjects, setAnchoredObjects] = useState([]);
 
   useEffect(() => {
     engineRef.current = new Xr8SpatialEngine();
+    aiDetectorRef.current = new AIVisionDetector();
+    aiDetectorRef.current.loadModel().catch(e => console.warn('AI Detector load warn:', e));
+    spatialManagerRef.current = new SpatialObjectManager();
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (engineRef.current) engineRef.current.stopCamera();
@@ -56,13 +64,28 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
   };
 
   const loop = () => {
-    const tick = () => {
+    let lastAIDetectTime = 0;
+    const tick = (now) => {
       const engine = engineRef.current;
       if (engine) {
         const result = engine.processFrame();
         setPointCount(result.pointCount);
         setCoverage({ ...result.coverage });
         setTrackingStatus(result.trackingStatus);
+
+        // Run AI neural vision object detection periodically on the real camera canvas
+        if (now - lastAIDetectTime > 380 && aiDetectorRef.current && canvasRef.current && engine.isScanning) {
+          lastAIDetectTime = now;
+          aiDetectorRef.current.detectFrame(canvasRef.current, null, engine.deviceAngle)
+            .then(detections => {
+              if (detections && detections.length > 0 && spatialManagerRef.current) {
+                spatialManagerRef.current.integrateDetections(detections);
+                const confirmed = spatialManagerRef.current.getAnchors(1);
+                setAnchoredObjects([...confirmed]);
+              }
+            })
+            .catch(() => {});
+        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -86,6 +109,8 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
   const handleReset = () => {
     if (!engineRef.current) return;
     engineRef.current.resetScan();
+    spatialManagerRef.current?.reset();
+    setAnchoredObjects([]);
     setPointCount(0);
     setKeyframeCount(0);
     setCoverage({ floor: 0, ceiling: 0, north: 0, south: 0, east: 0, west: 0, total: 0 });
@@ -100,6 +125,7 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
     const bounds = engineRef.current.computeRoomBounds();
     let points = [...engineRef.current.points];
     const keyframes = [...engineRef.current.keyframes];
+    const finalAnchors = spatialManagerRef.current ? spatialManagerRef.current.getAnchors(1) : [];
 
     // If point count is low (e.g. tracking just started or bare walls), supplement with procedural points
     // so the 3D room simulation has a full volumetric space and mesh immediately
@@ -119,7 +145,7 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
       bounds,
       points,
       keyframes,
-      aiDetectedObjects: [], // AI object detection isn't wired into the real-AR path yet
+      aiDetectedObjects: finalAnchors,
       engine: 'xr8-slam',
       timestamp: Date.now()
     });
@@ -223,6 +249,16 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported }) 
           </div>
 
           <div className="mt-auto relative z-20 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col space-y-2.5">
+            {anchoredObjects.length > 0 && (
+              <div className="glass-panel p-2 rounded-xl flex items-center space-x-2 text-xs border border-cyan-500/30 bg-slate-900/80 animate-fade-in">
+                <Box className="w-4 h-4 text-cyan-400 shrink-0 animate-pulse" />
+                <span className="font-bold text-cyan-300">{anchoredObjects.length} muebles detectados:</span>
+                <span className="truncate text-slate-200 font-medium">
+                  {anchoredObjects.map(o => `${o.icon || '📦'} ${o.label}`).join(' · ')}
+                </span>
+              </div>
+            )}
+
             <div className="glass-panel p-2.5 rounded-2xl flex flex-col space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-slate-300">Puntos 3D reales</span>

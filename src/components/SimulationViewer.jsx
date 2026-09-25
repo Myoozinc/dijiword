@@ -51,7 +51,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
 
   // Viewer State
   const [navMode, setNavMode] = useState('orbit'); // 'orbit' | 'walk'
-  const [renderStyle, setRenderStyle] = useState('surface'); // 'surface' | 'mesh' | 'points' | 'cad' | 'thermal'
+  const [renderStyle, setRenderStyle] = useState('mesh'); // 'mesh' (Architectural 3D Room) | 'hybrid' | 'points' | 'cad' | 'surface'
   const [timeOfDay, setTimeOfDay] = useState(14); // 8 to 22 hrs
   const [lightsOn, setLightsOn] = useState(true);
   const [lightTemp, setLightTemp] = useState(3500); // 2700K warm to 6500K cool
@@ -60,7 +60,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
   const [selectedFurnitureId, setSelectedFurnitureId] = useState(null);
   const [furnitureList, setFurnitureList] = useState([]);
   const [isDrawerCollapsed, setIsDrawerCollapsed] = useState(false);
-  const [showAIObjects, setShowAIObjects] = useState(false); // Default to clean faithful 3D room geometry!
+  const [showAIObjects, setShowAIObjects] = useState(true); // Default to visible 3D furniture models!
   const [activeAIObjects, setActiveAIObjects] = useState(scanData.aiDetectedObjects || []);
   
   // Measurement state
@@ -186,7 +186,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
         aiObjectsGroup.add(objMesh);
       });
     }
-    aiObjectsGroup.visible = false;
+    aiObjectsGroup.visible = true;
 
     // Default Furniture if any
     if (scanData.defaultItems && scanData.defaultItems.length > 0) {
@@ -285,15 +285,18 @@ export function SimulationViewer({ scanData, onBackToScan }) {
 
   const applyRenderStyle = (style) => {
     setRenderStyle(style);
-    if (surfaceMeshRef.current) {
-      surfaceMeshRef.current.visible = (style === 'surface' || style === 'mesh');
-    }
+    // 'mesh': Full 3D architectural room (walls, floor, window, sunlight)
     if (roomGroupRef.current) {
-      roomGroupRef.current.visible = (style === 'mesh');
+      roomGroupRef.current.visible = (style === 'mesh' || style === 'hybrid');
     }
+    // 'surface': Floor topography overlay
+    if (surfaceMeshRef.current) {
+      surfaceMeshRef.current.visible = (style === 'surface');
+    }
+    // 'points' / 'hybrid': Real laser/SLAM point cloud
     if (pointCloudRef.current) {
-      pointCloudRef.current.visible = (style === 'points' || style === 'thermal');
-      if (style === 'thermal' || style === 'points') {
+      pointCloudRef.current.visible = (style === 'points' || style === 'hybrid' || style === 'thermal');
+      if (style === 'thermal' || style === 'points' || style === 'hybrid') {
         const scene = sceneRef.current;
         scene.remove(pointCloudRef.current);
         const newPC = RoomReconstruction.createPointCloud(points, style === 'thermal' ? 'thermal' : 'rgb');
@@ -301,8 +304,12 @@ export function SimulationViewer({ scanData, onBackToScan }) {
         scene.add(newPC);
       }
     }
+    // 'cad': Wireframe blueprint
     if (cadGroupRef.current) {
       cadGroupRef.current.visible = (style === 'cad');
+    }
+    if (aiObjectsGroupRef.current) {
+      aiObjectsGroupRef.current.visible = (style === 'points') ? false : showAIObjects;
     }
   };
 
@@ -638,27 +645,27 @@ export function SimulationViewer({ scanData, onBackToScan }) {
           {/* Render Style Toggles & AI Objects View */}
           <div className="flex p-0.5 rounded-xl glass-pill border border-white/10">
             <button
-              onClick={() => applyRenderStyle('surface')}
-              className={`p-1.5 rounded-lg text-xs font-semibold transition ${
-                renderStyle === 'surface' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400'
-              }`}
-              title="Malla 3D Fiel (Superficie Continua Real sin distorsión)"
-            >
-              <Activity className="w-4 h-4" />
-            </button>
-            <button
               onClick={() => applyRenderStyle('mesh')}
               className={`p-1.5 rounded-lg text-xs font-semibold transition ${
-                renderStyle === 'mesh' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400'
+                renderStyle === 'mesh' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400 hover:text-white'
               }`}
-              title="Modelo Híbrido (Malla + Muros)"
+              title="Cuarto Arquitectónico 3D (Muros, Piso, Ventana y Muebles)"
             >
               <Box className="w-4 h-4" />
             </button>
             <button
+              onClick={() => applyRenderStyle('hybrid')}
+              className={`p-1.5 rounded-lg text-xs font-semibold transition ${
+                renderStyle === 'hybrid' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Mapeo Híbrido (Cuarto 3D + Nube de Puntos SLAM)"
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => applyRenderStyle('points')}
               className={`p-1.5 rounded-lg text-xs font-semibold transition ${
-                renderStyle === 'points' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400'
+                renderStyle === 'points' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400 hover:text-white'
               }`}
               title="Nube de Puntos LiDAR"
             >
@@ -667,7 +674,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             <button
               onClick={() => applyRenderStyle('cad')}
               className={`p-1.5 rounded-lg text-xs font-semibold transition ${
-                renderStyle === 'cad' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400'
+                renderStyle === 'cad' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400 hover:text-white'
               }`}
               title="Plano CAD Blueprint"
             >
