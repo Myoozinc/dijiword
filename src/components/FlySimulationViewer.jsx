@@ -19,9 +19,13 @@ import {
   Layers,
   ExternalLink,
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  GraduationCap,
+  Flame,
+  RefreshCw,
+  Award
 } from 'lucide-react';
-import { FlyConnectomeEngine } from '../services/flyConnectomeEngine';
+import { FlyConnectomeEngine, FlyLearningMemoryEngine } from '../services/flyConnectomeEngine';
 
 export function FlySimulationViewer({ onBackToRoomScanner }) {
   const containerRef = useRef(null);
@@ -31,11 +35,25 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
   const [viewMode, setViewMode] = useState('split'); // 'split' | 'connectome' | 'fly'
   const [isRunning, setIsRunning] = useState(true);
   const [firingRateHz, setFiringRateHz] = useState(4.2);
-  const [activeStimulus, setActiveStimulus] = useState('light'); // 'light' | 'odor' | 'mechanosensory' | 'none'
+  const [activeStimulus, setActiveStimulus] = useState('memory'); // 'memory' | 'light' | 'mechanosensory' | 'none'
   const [selectedNeuropil, setSelectedNeuropil] = useState(null);
   const [dopamineBoostActive, setDopamineBoostActive] = useState(false);
   const [showDataModal, setShowDataModal] = useState(false);
   const [flyHeadingAngle, setFlyHeadingAngle] = useState(0);
+
+  // Mushroom Body Learning & Synaptic Plasticity Engine
+  const memoryEngineRef = useRef(new FlyLearningMemoryEngine());
+  const [showLearningPanel, setShowLearningPanel] = useState(false);
+  const [selectedStimulusIdx, setSelectedStimulusIdx] = useState(0);
+  const [lastLearningEvent, setLastLearningEvent] = useState(null);
+  const [memoryStats, setMemoryStats] = useState({
+    valence: 0,
+    stm: 0,
+    ltm: 0,
+    trials: 0,
+    weightsApproach: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    weightsAvoidance: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+  });
 
   // Three.js scene refs for Connectome
   const sceneRef = useRef(null);
@@ -54,6 +72,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
   const flyModelRef = useRef(null);
   const flyLegsRef = useRef(null);
   const targetLightRef = useRef(null);
+  const foodBeaconRef = useRef(null);
 
   const animFrameRef = useRef(null);
   const clockRef = useRef(new THREE.Clock());
@@ -179,6 +198,32 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     scene.add(targetLight);
     targetLightRef.current = targetLight;
 
+    // Interactive Food / Conditioned Stimulus Beacon in Arena (Mushroom Body Learning Target)
+    const foodGroup = new THREE.Group();
+    foodGroup.position.set(2.4, 0.35, -2.0);
+
+    const foodGeo = new THREE.SphereGeometry(0.24, 16, 16);
+    const foodMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x059669,
+      emissiveIntensity: 0.8,
+      roughness: 0.3
+    });
+    const foodMesh = new THREE.Mesh(foodGeo, foodMat);
+    foodMesh.castShadow = true;
+    foodGroup.add(foodMesh);
+
+    // Glowing Halo ring around beacon
+    const haloGeo = new THREE.RingGeometry(0.35, 0.45, 24);
+    const haloMat = new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide, transparent: true, opacity: 0.7 });
+    const halo = new THREE.Mesh(haloGeo, haloMat);
+    halo.rotation.x = Math.PI / 2;
+    halo.position.y = -0.3;
+    foodGroup.add(halo);
+
+    scene.add(foodGroup);
+    foodBeaconRef.current = foodGroup;
+
     // Arena Floor
     const arenaFloorGeo = new THREE.CylinderGeometry(5.0, 5.0, 0.1, 48);
     const arenaFloorMat = new THREE.MeshStandardMaterial({
@@ -272,8 +317,38 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
           // Tripodal gait kinematic locomotion
           FlyConnectomeEngine.updateTripodGait(flyLegsRef.current, time, firingRateHz / 4.2);
 
-          // Fly autonomous exploration / phototaxis turning
-          if (activeStimulus === 'light' && targetLightRef.current) {
+          // Memory decay over time
+          memoryEngineRef.current.decayMemory(delta);
+
+          // Fly autonomous exploration: Phototaxis, Mechanosensory, or Learned Associative Memory
+          if (activeStimulus === 'memory' && foodBeaconRef.current) {
+            const currentValence = memoryEngineRef.current.getNetValence(selectedStimulusIdx);
+            const beaconPos = foodBeaconRef.current.position;
+            const flyPos = flyModelRef.current.position;
+            const dist = flyPos.distanceTo(beaconPos);
+
+            if (currentValence > 0.1) {
+              // Learned Approach (Positive Valence): Guide fly towards the food beacon
+              const targetYaw = Math.atan2(beaconPos.x - flyPos.x, beaconPos.z - flyPos.z);
+              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.05);
+              if (dist > 0.8) {
+                flyModelRef.current.translateZ(0.016 * (firingRateHz / 4.2));
+              }
+              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            } else if (currentValence < -0.1) {
+              // Learned Avoidance (Negative Valence): Escape away from the beacon
+              const escapeYaw = Math.atan2(flyPos.x - beaconPos.x, flyPos.z - beaconPos.z);
+              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, escapeYaw, 0.06);
+              if (dist < 4.2) {
+                flyModelRef.current.translateZ(0.02 * (firingRateHz / 4.2));
+              }
+              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            } else {
+              // Neutral exploratory wandering
+              flyModelRef.current.rotation.y += Math.sin(time * 0.5) * 0.008;
+              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            }
+          } else if (activeStimulus === 'light' && targetLightRef.current) {
             // Target light revolves around the arena
             const lightAngle = time * 0.45;
             targetLightRef.current.position.x = Math.cos(lightAngle) * 3.2;
@@ -301,7 +376,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
 
     animId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animId);
-  }, [isRunning, firingRateHz, activeStimulus]);
+  }, [isRunning, firingRateHz, activeStimulus, selectedStimulusIdx]);
 
   // Trigger virtual dopamine reward burst (as discussed in PDF)
   const triggerDopaminePulse = () => {
@@ -331,6 +406,73 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
         pulsesRef.current.geometry.attributes.color.needsUpdate = true;
       }
     }, 2800);
+  };
+
+  const handleTrain = (type) => { // 'reward' | 'punishment'
+    const result = memoryEngineRef.current.train(selectedStimulusIdx, type);
+    if (!result) return;
+
+    setLastLearningEvent(result);
+    setMemoryStats({
+      valence: result.valence,
+      stm: result.shortTermMemory,
+      ltm: result.longTermMemory,
+      trials: result.trialsCount,
+      weightsApproach: [...memoryEngineRef.current.weightsApproach],
+      weightsAvoidance: [...memoryEngineRef.current.weightsAvoidance]
+    });
+
+    // Dopamine burst in connectome
+    if (pulsesRef.current) {
+      const colors = pulsesRef.current.geometry.attributes.color.array;
+      for (let i = 0; i < colors.length / 3; i++) {
+        if (type === 'reward') {
+          // Dopamine PAM gold
+          colors[i * 3] = 1.0;
+          colors[i * 3 + 1] = 0.85;
+          colors[i * 3 + 2] = 0.15;
+        } else {
+          // Shock PPL1 red/magenta
+          colors[i * 3] = 0.95;
+          colors[i * 3 + 1] = 0.15;
+          colors[i * 3 + 2] = 0.45;
+        }
+      }
+      pulsesRef.current.geometry.attributes.color.needsUpdate = true;
+      setTimeout(() => {
+        if (pulsesRef.current) {
+          const c = pulsesRef.current.geometry.attributes.color.array;
+          for (let i = 0; i < c.length / 3; i++) {
+            c[i * 3] = 0.2 + Math.random() * 0.8;
+            c[i * 3 + 1] = 0.8 + Math.random() * 0.2;
+            c[i * 3 + 2] = 0.9;
+          }
+          pulsesRef.current.geometry.attributes.color.needsUpdate = true;
+        }
+      }, 2500);
+    }
+
+    setActiveStimulus('memory');
+
+    // Update food beacon visual feedback
+    if (foodBeaconRef.current && foodBeaconRef.current.children[0]) {
+      const color = type === 'reward' ? 0x10b981 : 0xef4444;
+      foodBeaconRef.current.children[0].material.color.setHex(color);
+      foodBeaconRef.current.children[0].material.emissive.setHex(color);
+    }
+  };
+
+  const handleResetMemory = () => {
+    memoryEngineRef.current.reset();
+    setLastLearningEvent(null);
+    setMemoryStats({
+      valence: 0,
+      stm: 0,
+      ltm: 0,
+      trials: 0,
+      weightsApproach: [...memoryEngineRef.current.weightsApproach],
+      weightsAvoidance: [...memoryEngineRef.current.weightsAvoidance]
+    });
   };
 
   return (
@@ -402,6 +544,19 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
           >
             <Sparkles className="w-4 h-4 text-yellow-200" />
             <span>{dopamineBoostActive ? '¡Dopamina Activa!' : 'Pulso Dopamina'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowLearningPanel(!showLearningPanel)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-lg transition active:scale-95 ${
+              showLearningPanel
+                ? 'bg-purple-600 text-white ring-2 ring-purple-400'
+                : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:brightness-110'
+            }`}
+            title="Abrir panel de condicionamiento asociativo y plasticidad sináptica (Cuerpos Fungiformes)"
+          >
+            <GraduationCap className="w-4 h-4 text-purple-200" />
+            <span>🧠 Aprender & Memoria</span>
           </button>
 
           <button
@@ -513,6 +668,16 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
         <div className="flex items-center space-x-2">
           <span className="text-xs text-slate-400 font-medium">Estímulo Sensorial:</span>
           <button
+            onClick={() => setActiveStimulus('memory')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 transition ${
+              activeStimulus === 'memory' ? 'bg-purple-500/30 text-purple-300 border border-purple-400/60' : 'bg-slate-900 text-slate-400'
+            }`}
+            title="Navegación guiada por memoria asociativa y valencia aprendida (Cuerpo Fungiforme)"
+          >
+            <GraduationCap className="w-3.5 h-3.5 text-purple-300" />
+            <span>Memoria (MB)</span>
+          </button>
+          <button
             onClick={() => setActiveStimulus('light')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 transition ${
               activeStimulus === 'light' ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400/60' : 'bg-slate-900 text-slate-400'
@@ -556,6 +721,197 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
           </div>
         </div>
       </footer>
+
+      {/* Mushroom Body Associative Learning & Plasticity Modal */}
+      {showLearningPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="glass-panel p-6 rounded-2xl border border-purple-500/40 max-w-2xl w-full flex flex-col space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-purple-500/20 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                    <span>Circuito de Aprendizaje y Memoria</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono">Cuerpo Fungiforme (MB)</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Plasticidad sináptica modulada por Dopamina (Células de Kenyon → MBONs)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowLearningPanel(false)}
+                className="text-slate-400 hover:text-white text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-800"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            {/* Stimulus Selector */}
+            <div>
+              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">
+                1. Selecciona el Estímulo a Condicionar (Olor o Clave Sensorial):
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {memoryEngineRef.current.stimuli.map((st, idx) => (
+                  <button
+                    key={st.id}
+                    onClick={() => {
+                      setSelectedStimulusIdx(idx);
+                      setMemoryStats(prev => ({
+                        ...prev,
+                        valence: memoryEngineRef.current.getNetValence(idx)
+                      }));
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition flex flex-col space-y-1 ${
+                      selectedStimulusIdx === idx
+                        ? 'bg-purple-950/60 border-purple-400 ring-1 ring-purple-400'
+                        : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="text-lg">{st.icon}</div>
+                    <div className="text-xs font-bold text-white truncate">{st.name.split(':')[0]}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{st.name.split(':')[1] || ''}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Valence & Memory Gauges */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
+              <div className="flex flex-col">
+                <span className="text-[11px] text-slate-400 font-medium">Valencia Aprendida:</span>
+                <span className={`text-base font-extrabold font-mono mt-0.5 ${
+                  memoryStats.valence > 0.1
+                    ? 'text-emerald-400'
+                    : memoryStats.valence < -0.1
+                    ? 'text-rose-400'
+                    : 'text-slate-300'
+                }`}>
+                  {memoryStats.valence > 0 ? `+${memoryStats.valence}` : memoryStats.valence}
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  {memoryStats.valence > 0.1 ? '🟢 Búsqueda Activa / Atracción' : memoryStats.valence < -0.1 ? '🔴 Reflejo de Escape / Aversión' : '⚪ Neutro (Sin Condicionar)'}
+                </span>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-[11px] text-slate-400 font-medium">Memoria a Corto Plazo:</span>
+                <div className="w-full bg-slate-800 rounded-full h-2 mt-2 overflow-hidden">
+                  <div
+                    className="bg-cyan-400 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${memoryStats.stm}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 font-mono">{memoryStats.stm}% (decae si no se refuerza)</span>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-[11px] text-slate-400 font-medium">Consolidación Larga (CREB):</span>
+                <div className="w-full bg-slate-800 rounded-full h-2 mt-2 overflow-hidden">
+                  <div
+                    className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${memoryStats.ltm}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 font-mono">{memoryStats.ltm}% ({memoryStats.trials} ensayos)</span>
+              </div>
+            </div>
+
+            {/* Reinforcement Training Actions */}
+            <div>
+              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">
+                2. Entrenar el Cerebro (Liberación de Dopamina / Refuerzo):
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleTrain('reward')}
+                  className="p-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:brightness-110 text-white flex items-center space-x-2.5 shadow-lg active:scale-95 transition"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-emerald-400/20 flex items-center justify-center text-lg">
+                    🍬
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-bold">Dar Azúcar / Recompensa (Dopamina PAM)</div>
+                    <div className="text-[10px] text-emerald-200">Deprime sinapsis de evitación → Provoca atracción</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleTrain('punishment')}
+                  className="p-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-700 hover:brightness-110 text-white flex items-center space-x-2.5 shadow-lg active:scale-95 transition"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-rose-400/20 flex items-center justify-center text-lg">
+                    ⚡
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-bold">Dar Castigo / Shock (Dopamina PPL1)</div>
+                    <div className="text-[10px] text-rose-200">Deprime sinapsis de atracción → Provoca huida</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Live Synaptic Weight Bars */}
+            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-300">
+                  Pesos Sinápticos (Células de Kenyon → Neuronas de Salida MBON):
+                </span>
+                <button
+                  onClick={handleResetMemory}
+                  className="text-[10px] text-slate-400 hover:text-white flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Resetear Memoria</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-8 gap-1.5 text-center font-mono text-[9px]">
+                {memoryStats.weightsApproach.map((w, i) => (
+                  <div key={i} className="flex flex-col items-center">
+                    <div className="h-14 w-full bg-slate-800 rounded flex flex-col justify-end p-0.5 space-y-0.5">
+                      <div
+                        className="w-full bg-emerald-400 rounded-t transition-all"
+                        style={{ height: `${w * 100}%` }}
+                        title={`KC-${i + 1} -> MBON Atracción: ${w.toFixed(2)}`}
+                      />
+                      <div
+                        className="w-full bg-rose-400 rounded-t transition-all"
+                        style={{ height: `${memoryStats.weightsAvoidance[i] * 100}%` }}
+                        title={`KC-${i + 1} -> MBON Evitación: ${memoryStats.weightsAvoidance[i].toFixed(2)}`}
+                      />
+                    </div>
+                    <span className="text-slate-400 mt-1">KC{i + 1}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-center space-x-4 mt-2 text-[10px] text-slate-400">
+                <div className="flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded bg-emerald-400" />
+                  <span>Sinapsis Atracción</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded bg-rose-400" />
+                  <span>Sinapsis Evitación</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-purple-950/30 border border-purple-500/20 text-[11px] text-slate-300 leading-relaxed">
+              💡 <strong>Regla Biológica:</strong> En la mosca de la fruta el aprendizaje ocurre por <em>Depresión a Largo Plazo (LTD)</em>. Cuando se presenta comida, la dopamina debilita los canales de huida, inclinando el equilibrio motor para que la mosca camine automáticamente hacia ese olor en la arena.
+            </div>
+
+            <button
+              onClick={() => setShowLearningPanel(false)}
+              className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition"
+            >
+              Cerrar y Ver Comportamiento en la Arena
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Data Acquisition & API Modal */}
       {showDataModal && (

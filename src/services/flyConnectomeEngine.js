@@ -448,3 +448,144 @@ export class FlyConnectomeEngine {
     });
   }
 }
+
+/**
+ * Biologically Realistic Drosophila Mushroom Body Associative Learning Engine
+ * ============================================================================
+ * Implements the canonical Kenyon Cell (KC) -> MBON synaptic plasticity circuit
+ * gated by Dopaminergic Neurons (PAM cluster = Reward, PPL1 cluster = Punishment).
+ * Based on Aso et al. (eLife 2014), Hige et al. (Nature 2015), and MaleCNS connectomics.
+ */
+export class FlyLearningMemoryEngine {
+  constructor() {
+    // 4 canonical olfactory & sensory conditioned stimuli (CS)
+    this.stimuli = [
+      { id: 'odor_apple', name: 'Olor A: Manzana Dulce (Acetato de Etilo)', icon: '🍎', color: '#10b981', kcPattern: [1, 0, 1, 0, 0, 1, 0, 0] },
+      { id: 'odor_almond', name: 'Olor B: Almendra (Benzaldehído)', icon: '🌰', color: '#f59e0b', kcPattern: [0, 1, 0, 1, 1, 0, 0, 0] },
+      { id: 'light_blue', name: 'Luz Azul (Fototaxis Corta)', icon: '💡', color: '#06b6d4', kcPattern: [0, 0, 1, 1, 0, 0, 1, 0] },
+      { id: 'heat_zone', name: 'Zona Térmica / Peligro', icon: '🔥', color: '#ef4444', kcPattern: [0, 0, 0, 0, 1, 0, 1, 1] }
+    ];
+
+    // Synaptic weights from 8 Kenyon Cell clusters to MBON populations
+    // In naive flies, approach and avoidance are balanced (initial weight = 0.5)
+    this.weightsApproach = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    this.weightsAvoidance = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+
+    // Learning parameters
+    this.learningRate = 0.22;
+    this.minWeight = 0.05;
+    this.maxWeight = 0.95;
+
+    // Memory status
+    this.shortTermMemory = 0; // 0 to 100%
+    this.longTermMemory = 0;  // Consolidated memory (CREB-dependent)
+    this.trialsCount = 0;
+    this.lastConditioningEvent = null;
+  }
+
+  /**
+   * Applies Dopaminergic Reinforcement Learning (Dopamine-gated Plasticity)
+   * In Drosophila:
+   * - REWARD (Sugar / PAM DANs): Depresses KC -> MBON_avoidance synapses via LTD.
+   *   Result: Net valence shifts to ATTRACCIÓN (approach).
+   * - PUNISHMENT (Shock / PPL1 DANs): Depresses KC -> MBON_approach synapses via LTD.
+   *   Result: Net valence shifts to AVERSIÓN (avoidance).
+   */
+  train(stimulusIndex, reinforcementType = 'reward') {
+    const stimulus = this.stimuli[stimulusIndex];
+    if (!stimulus) return null;
+
+    const pattern = stimulus.kcPattern;
+    this.trialsCount += 1;
+
+    let deltaSum = 0;
+
+    pattern.forEach((active, i) => {
+      if (active) {
+        if (reinforcementType === 'reward') {
+          // Depress avoidance synapses
+          const delta = this.learningRate * (this.weightsAvoidance[i] - this.minWeight);
+          this.weightsAvoidance[i] = Math.max(this.minWeight, this.weightsAvoidance[i] - delta);
+          deltaSum += delta;
+        } else if (reinforcementType === 'punishment') {
+          // Depress approach synapses
+          const delta = this.learningRate * (this.weightsApproach[i] - this.minWeight);
+          this.weightsApproach[i] = Math.max(this.minWeight, this.weightsApproach[i] - delta);
+          deltaSum += delta;
+        }
+      }
+    });
+
+    // Update Memory Consolidations
+    this.shortTermMemory = Math.min(100, Math.round(this.shortTermMemory + 35));
+    if (this.trialsCount >= 3) {
+      // Repetition triggers Long-Term Memory (CREB gene transcription)
+      this.longTermMemory = Math.min(100, Math.round(this.longTermMemory + 25));
+    }
+
+    const valence = this.getNetValence(stimulusIndex);
+    this.lastConditioningEvent = {
+      stimulus: stimulus.name,
+      type: reinforcementType,
+      valence,
+      timestamp: Date.now()
+    };
+
+    return {
+      stimulus,
+      reinforcementType,
+      valence,
+      shortTermMemory: this.shortTermMemory,
+      longTermMemory: this.longTermMemory,
+      trialsCount: this.trialsCount
+    };
+  }
+
+  /**
+   * Calculates net behavioral valence (-1.0 = strong avoidance, +1.0 = strong approach)
+   */
+  getNetValence(stimulusIndex) {
+    const stimulus = this.stimuli[stimulusIndex];
+    if (!stimulus) return 0;
+
+    let approachDrive = 0;
+    let avoidanceDrive = 0;
+    let count = 0;
+
+    stimulus.kcPattern.forEach((active, i) => {
+      if (active) {
+        approachDrive += this.weightsApproach[i];
+        avoidanceDrive += this.weightsAvoidance[i];
+        count += 1;
+      }
+    });
+
+    if (count === 0) return 0;
+    const net = (approachDrive - avoidanceDrive) / count;
+    return parseFloat(net.toFixed(2));
+  }
+
+  /**
+   * Passive forgetting / memory decay over time
+   */
+  decayMemory(deltaSec) {
+    if (this.shortTermMemory > 0) {
+      // Short-term memory decays gradually
+      const decayRate = 0.5 * deltaSec;
+      this.shortTermMemory = Math.max(0, this.shortTermMemory - decayRate);
+    }
+  }
+
+  /**
+   * Resets synaptic weights back to naive baseline
+   */
+  reset() {
+    this.weightsApproach = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    this.weightsAvoidance = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    this.shortTermMemory = 0;
+    this.longTermMemory = 0;
+    this.trialsCount = 0;
+    this.lastConditioningEvent = null;
+  }
+}
+
