@@ -120,12 +120,13 @@ export function CameraScanner({ onCompleteScan, onLoadPreset }) {
             
             // Integrate into persistent spatial world anchors
             if (spatialManagerRef.current) {
-              const prevCount = spatialManagerRef.current.anchors.length;
-              const updatedAnchors = spatialManagerRef.current.integrateDetections(rawDetections);
-              setAnchoredObjects([...updatedAnchors]);
+              const prevCount = spatialManagerRef.current.getAnchors(2).length;
+              spatialManagerRef.current.integrateDetections(rawDetections);
+              const confirmedAnchors = spatialManagerRef.current.getAnchors(2);
+              setAnchoredObjects([...confirmedAnchors]);
 
-              // Haptic vibrate when a brand-new object is anchored
-              if (updatedAnchors.length > prevCount && navigator.vibrate) {
+              // Haptic vibrate when a brand-new confirmed object is anchored
+              if (confirmedAnchors.length > prevCount && navigator.vibrate) {
                 try { navigator.vibrate(35); } catch (e) {}
               }
             }
@@ -148,7 +149,7 @@ export function CameraScanner({ onCompleteScan, onLoadPreset }) {
   };
 
   const updateGuidance = (cov, rawDetections) => {
-    const totalAnchored = spatialManagerRef.current ? spatialManagerRef.current.anchors.length : 0;
+    const totalAnchored = spatialManagerRef.current ? spatialManagerRef.current.getAnchors(2).length : 0;
 
     if (rawDetections.length > 0) {
       setGuidanceMsg(`🎯 Fijando en 3D: ${rawDetections[0].label} (${rawDetections[0].depth}m)`);

@@ -60,6 +60,8 @@ export function SimulationViewer({ scanData, onBackToScan }) {
   const [selectedFurnitureId, setSelectedFurnitureId] = useState(null);
   const [furnitureList, setFurnitureList] = useState([]);
   const [isDrawerCollapsed, setIsDrawerCollapsed] = useState(false);
+  const [showAIObjects, setShowAIObjects] = useState(false); // Default to clean faithful 3D room geometry!
+  const [activeAIObjects, setActiveAIObjects] = useState(scanData.aiDetectedObjects || []);
   
   // Measurement state
   const [measureMode, setMeasureMode] = useState(false);
@@ -177,13 +179,14 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     // Build Room Meshes & Geometries
     rebuildRoomMesh(false);
 
-    // Populate AI Detected Objects with real extracted textures
-    if (aiDetectedObjects && aiDetectedObjects.length > 0) {
-      aiDetectedObjects.forEach(obj => {
+    // Populate AI Detected Objects with clean volumetric geometry (no floating photo cards)
+    if (activeAIObjects && activeAIObjects.length > 0) {
+      activeAIObjects.forEach(obj => {
         const objMesh = RoomReconstruction.createAIObjectMesh(obj);
         aiObjectsGroup.add(objMesh);
       });
     }
+    aiObjectsGroup.visible = false;
 
     // Default Furniture if any
     if (scanData.defaultItems && scanData.defaultItems.length > 0) {
@@ -562,12 +565,29 @@ export function SimulationViewer({ scanData, onBackToScan }) {
     return labels[type] || type;
   };
 
+  // Sync AI objects group visibility
+  useEffect(() => {
+    if (aiObjectsGroupRef.current) {
+      aiObjectsGroupRef.current.visible = showAIObjects;
+    }
+  }, [showAIObjects]);
+
   const focusOnObject = (obj) => {
     if (!controlsRef.current || !cameraRef.current) return;
+    if (!showAIObjects) setShowAIObjects(true);
     const { x, y = 0, z } = obj.position3D || {};
     controlsRef.current.target.set(x, y + 0.4, z);
     cameraRef.current.position.set(x + 1.8, y + 1.4, z + 1.8);
     controlsRef.current.update();
+  };
+
+  const removeAIObject = (id, e) => {
+    e?.stopPropagation();
+    setActiveAIObjects(prev => prev.filter(obj => obj.id !== id));
+    if (aiObjectsGroupRef.current) {
+      const child = aiObjectsGroupRef.current.children.find(c => c.userData?.id === id);
+      if (child) aiObjectsGroupRef.current.remove(child);
+    }
   };
 
   return (
@@ -615,14 +635,14 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             </button>
           </div>
 
-          {/* Render Style Toggles */}
+          {/* Render Style Toggles & AI Objects View */}
           <div className="flex p-0.5 rounded-xl glass-pill border border-white/10">
             <button
               onClick={() => applyRenderStyle('surface')}
               className={`p-1.5 rounded-lg text-xs font-semibold transition ${
                 renderStyle === 'surface' ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-400'
               }`}
-              title="Malla 3D Fiel (Superficie Continua Real)"
+              title="Malla 3D Fiel (Superficie Continua Real sin distorsión)"
             >
               <Activity className="w-4 h-4" />
             </button>
@@ -652,6 +672,16 @@ export function SimulationViewer({ scanData, onBackToScan }) {
               title="Plano CAD Blueprint"
             >
               <Layers className="w-4 h-4" />
+            </button>
+            <div className="w-[1px] h-4 bg-white/10 my-auto mx-0.5" />
+            <button
+              onClick={() => setShowAIObjects(!showAIObjects)}
+              className={`p-1.5 rounded-lg text-xs font-semibold transition ${
+                showAIObjects ? 'bg-cyan-500/40 text-cyan-300' : 'text-slate-500 hover:text-slate-300'
+              }`}
+              title={showAIObjects ? "Objetos 3D visibles (Toca para ocultar y ver espacio limpio)" : "Objetos 3D ocultos (Toca para mostrar)"}
+            >
+              <Target className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -801,7 +831,7 @@ export function SimulationViewer({ scanData, onBackToScan }) {
             }`}
           >
             <Scan className="w-3.5 h-3.5" />
-            <span>Objetos ({aiDetectedObjects.length})</span>
+            <span>Objetos ({activeAIObjects.length})</span>
           </button>
 
           <button
@@ -909,20 +939,23 @@ export function SimulationViewer({ scanData, onBackToScan }) {
               <div className="p-4 flex flex-col space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-300">
-                    Objetos y Sujetos Anclados en 3D:
+                    Mobiliario Confirmado ({activeAIObjects.length}):
                   </span>
-                  <span className="text-[11px] font-mono text-cyan-400">
-                    {aiDetectedObjects.length} registrados
-                  </span>
+                  <button
+                    onClick={() => setShowAIObjects(!showAIObjects)}
+                    className="text-[11px] font-semibold text-cyan-400 px-2 py-0.5 rounded-lg bg-cyan-500/10 border border-cyan-400/30 hover:bg-cyan-500/20 transition"
+                  >
+                    {showAIObjects ? '👁️ Ocultar en 3D' : '📦 Mostrar en 3D'}
+                  </button>
                 </div>
 
-                {aiDetectedObjects.length === 0 ? (
+                {activeAIObjects.length === 0 ? (
                   <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
-                    No se detectaron objetos en este escaneo. Puedes agregar mobiliario en la pestaña "Mobiliario".
+                    No hay objetos anclados. El espacio se visualiza en geometría 3D pura y limpia.
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto no-scrollbar">
-                    {aiDetectedObjects.map((obj) => (
+                    {activeAIObjects.map((obj) => (
                       <div
                         key={obj.id}
                         onClick={() => focusOnObject(obj)}
@@ -943,7 +976,13 @@ export function SimulationViewer({ scanData, onBackToScan }) {
                         <div className="flex-1 truncate">
                           <div className="text-xs font-bold text-white truncate flex items-center justify-between">
                             <span className="truncate">{obj.label}</span>
-                            <Target className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
+                            <button
+                              onClick={(e) => removeAIObject(obj.id, e)}
+                              className="text-slate-500 hover:text-red-400 p-0.5 shrink-0 ml-1"
+                              title="Eliminar este anclaje"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
                           </div>
                           <div className="text-[10px] text-cyan-400 font-mono">
                             {obj.size3D ? `${obj.size3D.width}×${obj.size3D.depth}m` : `${obj.depth}m`}

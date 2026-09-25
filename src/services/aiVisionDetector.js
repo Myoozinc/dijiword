@@ -92,7 +92,9 @@ export class AIVisionDetector {
 
     if (this.model) {
       try {
-        predictions = await this.model.detect(video, 12, 0.45);
+        const rawPreds = await this.model.detect(video, 6, 0.60);
+        // Strict filter: keep only recognized stable room furniture
+        predictions = rawPreds.filter(p => SpatialObjectManager.isAllowedClass(p.class));
       } catch (e) {
         console.warn('Detection infer error:', e);
       }

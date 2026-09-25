@@ -375,55 +375,78 @@ export class RoomReconstruction {
   /**
    * Build Faithful Continuous 3D Surface Mesh from Scanned Points
    * Recreates the actual continuous physical topography and 3D relief of the room and furniture
+   * Eliminates distorted slopes, fills floor cleanly, and models real elevation steps
    */
   static buildDenseSurfaceMesh(points, bounds) {
-    if (!points || points.length < 50) return new THREE.Group();
+    if (!points || points.length < 30) return new THREE.Group();
 
     const group = new THREE.Group();
     group.name = 'DenseSurfaceMeshGroup';
 
     const { min, max } = bounds;
-    const gridResX = 50;
-    const gridResZ = 50;
+    const gridResX = 60;
+    const gridResZ = 60;
 
     const stepX = (max.x - min.x) / gridResX;
     const stepZ = (max.z - min.z) / gridResZ;
 
-    const heightGrid = new Float32Array(gridResX * gridResZ);
-    const colorGridR = new Float32Array(gridResX * gridResZ);
-    const colorGridG = new Float32Array(gridResX * gridResZ);
-    const colorGridB = new Float32Array(gridResX * gridResZ);
-    const countGrid = new Uint16Array(gridResX * gridResZ);
+    const cellCount = gridResX * gridResZ;
+    const heightGrid = new Float32Array(cellCount);
+    const colorGridR = new Float32Array(cellCount);
+    const colorGridG = new Float32Array(cellCount);
+    const colorGridB = new Float32Array(cellCount);
+    const countGrid = new Uint16Array(cellCount);
+    const sumYGrid = new Float32Array(cellCount);
 
-    for (let i = 0; i < gridResX * gridResZ; i++) {
-      colorGridR[i] = 0.55;
-      colorGridG[i] = 0.45;
-      colorGridB[i] = 0.35;
-    }
+    // Filter points and bin into grid
+    // Exclude extreme ceiling outliers (above 85% room height) from floor surface topography
+    const maxSurfaceHeight = Math.min(2.4, bounds.height * 0.85);
 
     for (const p of points) {
+      if (p.y > maxSurfaceHeight) continue; // Skip ceiling points for floor surface
+
       const gx = Math.floor((p.x - min.x) / stepX);
       const gz = Math.floor((p.z - min.z) / stepZ);
 
       if (gx >= 0 && gx < gridResX && gz >= 0 && gz < gridResZ) {
         const idx = gz * gridResX + gx;
-        if (p.y > heightGrid[idx]) {
-          heightGrid[idx] = p.y;
-        }
-        colorGridR[idx] = (colorGridR[idx] * countGrid[idx] + (p.r ?? 0.6)) / (countGrid[idx] + 1);
-        colorGridG[idx] = (colorGridG[idx] * countGrid[idx] + (p.g ?? 0.6)) / (countGrid[idx] + 1);
-        colorGridB[idx] = (colorGridB[idx] * countGrid[idx] + (p.b ?? 0.6)) / (countGrid[idx] + 1);
+        const py = Math.max(0, p.y);
+        sumYGrid[idx] += py;
+        colorGridR[idx] += (p.r ?? 0.6);
+        colorGridG[idx] += (p.g ?? 0.6);
+        colorGridB[idx] += (p.b ?? 0.6);
         countGrid[idx]++;
+      }
+    }
+
+    // Default neutral floor tone (clean modern architectural slate)
+    const defaultFloorR = 0.28;
+    const defaultFloorG = 0.32;
+    const defaultFloorB = 0.38;
+
+    // Compute cell heights & colors
+    for (let i = 0; i < cellCount; i++) {
+      if (countGrid[i] > 0) {
+        heightGrid[i] = Number((sumYGrid[i] / countGrid[i]).toFixed(3));
+        colorGridR[i] = Number((colorGridR[i] / countGrid[i]).toFixed(3));
+        colorGridG[i] = Number((colorGridG[i] / countGrid[i]).toFixed(3));
+        colorGridB[i] = Number((colorGridB[i] / countGrid[i]).toFixed(3));
+      } else {
+        heightGrid[i] = 0; // Flat floor
+        colorGridR[i] = defaultFloorR;
+        colorGridG[i] = defaultFloorG;
+        colorGridB[i] = defaultFloorB;
       }
     }
 
     const vertices = [];
     const colors = [];
     const indices = [];
-
     let vertIndex = 0;
-    const vertMap = new Int32Array(gridResX * gridResZ).fill(-1);
 
+    const vertMap = new Int32Array(cellCount).fill(-1);
+
+    // Create primary surface vertices
     for (let gz = 0; gz < gridResZ; gz++) {
       for (let gx = 0; gx < gridResX; gx++) {
         const idx = gz * gridResX + gx;
@@ -437,6 +460,10 @@ export class RoomReconstruction {
       }
     }
 
+    // Triangulate grid with smart elevation step handling
+    // If delta Y between adjacent cells is large (> 0.40m), do NOT create stretched slanting triangles
+    const maxSlopeDelta = 0.40;
+
     for (let gz = 0; gz < gridResZ - 1; gz++) {
       for (let gx = 0; gx < gridResX - 1; gx++) {
         const i0 = vertMap[gz * gridResX + gx];
@@ -449,12 +476,48 @@ export class RoomReconstruction {
         const y2 = vertices[i2 * 3 + 1];
         const y3 = vertices[i3 * 3 + 1];
 
-        const maxDelta = 1.4;
-        if (Math.abs(y0 - y1) < maxDelta && Math.abs(y0 - y2) < maxDelta) {
+        // Triangle 1: (i0, i2, i1)
+        const d01 = Math.abs(y0 - y1);
+        const d02 = Math.abs(y0 - y2);
+        const d12 = Math.abs(y1 - y2);
+
+        if (d01 <= maxSlopeDelta && d02 <= maxSlopeDelta && d12 <= maxSlopeDelta) {
           indices.push(i0, i2, i1);
         }
-        if (Math.abs(y3 - y1) < maxDelta && Math.abs(y3 - y2) < maxDelta) {
+
+        // Triangle 2: (i1, i2, i3)
+        const d13 = Math.abs(y1 - y3);
+        const d23 = Math.abs(y2 - y3);
+
+        if (d13 <= maxSlopeDelta && d23 <= maxSlopeDelta && d12 <= maxSlopeDelta) {
           indices.push(i1, i2, i3);
+        }
+
+        // Vertical step skirts: If cell is elevated and neighbor is at ground level, create vertical wall face
+        // Edge 0->1
+        if (d01 > maxSlopeDelta) {
+          const vFloorA = vertIndex++;
+          const vFloorB = vertIndex++;
+          vertices.push(vertices[i0 * 3], 0, vertices[i0 * 3 + 2]);
+          colors.push(colorGridR[gz * gridResX + gx] * 0.8, colorGridG[gz * gridResX + gx] * 0.8, colorGridB[gz * gridResX + gx] * 0.8);
+          vertices.push(vertices[i1 * 3], 0, vertices[i1 * 3 + 2]);
+          colors.push(colorGridR[gz * gridResX + (gx + 1)] * 0.8, colorGridG[gz * gridResX + (gx + 1)] * 0.8, colorGridB[gz * gridResX + (gx + 1)] * 0.8);
+
+          indices.push(i0, vFloorA, i1);
+          indices.push(i1, vFloorA, vFloorB);
+        }
+
+        // Edge 0->2
+        if (d02 > maxSlopeDelta) {
+          const vFloorA = vertIndex++;
+          const vFloorB = vertIndex++;
+          vertices.push(vertices[i0 * 3], 0, vertices[i0 * 3 + 2]);
+          colors.push(colorGridR[gz * gridResX + gx] * 0.8, colorGridG[gz * gridResX + gx] * 0.8, colorGridB[gz * gridResX + gx] * 0.8);
+          vertices.push(vertices[i2 * 3], 0, vertices[i2 * 3 + 2]);
+          colors.push(colorGridR[(gz + 1) * gridResX + gx] * 0.8, colorGridG[(gz + 1) * gridResX + gx] * 0.8, colorGridB[(gz + 1) * gridResX + gx] * 0.8);
+
+          indices.push(i0, i2, vFloorA);
+          indices.push(i2, vFloorB, vFloorA);
         }
       }
     }
@@ -465,10 +528,11 @@ export class RoomReconstruction {
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
+    // High quality standard material with real vertex colors
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.65,
-      metalness: 0.1,
+      roughness: 0.6,
+      metalness: 0.15,
       side: THREE.DoubleSide
     });
 
@@ -477,11 +541,12 @@ export class RoomReconstruction {
     mesh.castShadow = true;
     group.add(mesh);
 
+    // Subtle Cyan Architectural Topography Contour Lines
     const wireMat = new THREE.MeshBasicMaterial({
       color: 0x06b6d4,
       wireframe: true,
       transparent: true,
-      opacity: 0.15
+      opacity: 0.14
     });
     const wireMesh = new THREE.Mesh(geo, wireMat);
     wireMesh.position.y += 0.002;
@@ -491,10 +556,17 @@ export class RoomReconstruction {
   }
 
   /**
-   * Create an AI Detected Object with TRUE SCULPTED 3D GEOMETRY and Real Photo Texture Card
-   * Eliminates flat panel appearance by spawning realistic 3D volumetric bodies
+   * Create an AI Detected Object with Clean Architectural 3D Geometry
+   * STRICTLY REMOVES FLOATING PHOTO CARDS AND FLOATING TEXT BADGES TO ELIMINATE SCENE CLUTTER
    */
   static createAIObjectMesh(detectedObj) {
+    const cls = (detectedObj.class || '').toLowerCase().trim();
+
+    // Never render mannequins or persons as permanent room objects
+    if (cls.includes('person')) {
+      return new THREE.Group();
+    }
+
     const group = new THREE.Group();
     group.userData = {
       id: detectedObj.id,
@@ -505,7 +577,6 @@ export class RoomReconstruction {
 
     const { width = 1.0, height = 0.85, depth = 0.8 } = detectedObj.size3D || {};
     const pos = detectedObj.position3D || { x: 0, y: 0, z: 0 };
-    const cls = (detectedObj.class || '').toLowerCase();
 
     // 1. Soft Floor Contact Shadow
     const shadowCanvas = document.createElement('canvas');
@@ -513,14 +584,14 @@ export class RoomReconstruction {
     shadowCanvas.height = 128;
     const sCtx = shadowCanvas.getContext('2d');
     const sGrad = sCtx.createRadialGradient(64, 64, 10, 64, 64, 60);
-    sGrad.addColorStop(0, 'rgba(0, 0, 0, 0.45)');
-    sGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0.2)');
+    sGrad.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
+    sGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0.15)');
     sGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     sCtx.fillStyle = sGrad;
     sCtx.fillRect(0, 0, 128, 128);
 
     const shadowTex = new THREE.CanvasTexture(shadowCanvas);
-    const shadowGeo = new THREE.PlaneGeometry(width * 1.3, depth * 1.3);
+    const shadowGeo = new THREE.PlaneGeometry(width * 1.25, depth * 1.25);
     const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false });
     const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
     shadowMesh.rotation.x = -Math.PI / 2;
@@ -541,8 +612,6 @@ export class RoomReconstruction {
       object3D = this.createFurniture('plant');
     } else if (cls.includes('tv')) {
       object3D = this.createFurniture('tv');
-    } else if (cls.includes('person')) {
-      object3D = this.createFurniture('mannequin');
     } else if (cls.includes('chair')) {
       // Sculpted 3D Chair
       const chairGroup = new THREE.Group();
@@ -560,9 +629,15 @@ export class RoomReconstruction {
       });
       object3D = chairGroup;
     } else {
-      // Solid Architectural 3D Voxel
+      // Clean Architectural Semi-Transparent Massing Box
       const boxGeo = new THREE.BoxGeometry(width, height, depth);
-      const boxMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.35, metalness: 0.2 });
+      const boxMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        roughness: 0.35,
+        metalness: 0.2,
+        transparent: true,
+        opacity: 0.85
+      });
       object3D = new THREE.Mesh(boxGeo, boxMat);
       object3D.position.y = height / 2;
     }
@@ -571,56 +646,15 @@ export class RoomReconstruction {
     object3D.receiveShadow = true;
     group.add(object3D);
 
-    // 3. Crisp Cyan Holographic Bounds Wireframe
+    // 3. Crisp Cyan Architectural Bounds Wireframe
     const wireBoxGeo = new THREE.BoxGeometry(width, height, depth);
-    const wireMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.5 });
+    const wireMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.4 });
     const wire = new THREE.LineSegments(new THREE.WireframeGeometry(wireBoxGeo), wireMat);
     wire.position.y = height / 2;
     group.add(wire);
 
-    // 4. Real Photo Texture Card attached to the object
-    if (detectedObj.texture) {
-      const img = new Image();
-      img.src = detectedObj.texture;
-      const photoTex = new THREE.Texture(img);
-      img.onload = () => { photoTex.needsUpdate = true; };
-
-      const cardGeo = new THREE.PlaneGeometry(Math.min(0.6, width * 0.7), Math.min(0.45, height * 0.7));
-      const cardMat = new THREE.MeshBasicMaterial({ map: photoTex, side: THREE.DoubleSide });
-      const cardMesh = new THREE.Mesh(cardGeo, cardMat);
-      cardMesh.position.set(0, height + 0.15, depth / 2 + 0.02);
-      group.add(cardMesh);
-    }
-
-    // 5. Floating Architectural Info Badge
-    const tagCanvas = document.createElement('canvas');
-    tagCanvas.width = 280;
-    tagCanvas.height = 70;
-    const tagCtx = tagCanvas.getContext('2d');
-
-    tagCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-    tagCtx.roundRect(0, 0, 280, 70, 16);
-    tagCtx.fill();
-    tagCtx.strokeStyle = '#06b6d4';
-    tagCtx.lineWidth = 3;
-    tagCtx.stroke();
-
-    tagCtx.fillStyle = '#ffffff';
-    tagCtx.font = 'bold 22px system-ui';
-    tagCtx.fillText(`${detectedObj.icon || '📦'} ${detectedObj.label}`, 16, 32);
-
-    tagCtx.fillStyle = '#22d3ee';
-    tagCtx.font = 'bold 15px monospace';
-    tagCtx.fillText(`${width}m × ${depth}m × ${height}m`, 16, 54);
-
-    const tagTex = new THREE.CanvasTexture(tagCanvas);
-    const tagMat = new THREE.SpriteMaterial({ map: tagTex, transparent: true });
-    const sprite = new THREE.Sprite(tagMat);
-    sprite.scale.set(0.95, 0.26, 1);
-    sprite.position.set(0, height + 0.45, 0);
-    group.add(sprite);
-
-    group.position.set(pos.x, pos.y, pos.z);
+    // Set 3D world position (firmly grounded at floor level y = 0)
+    group.position.set(pos.x, 0, pos.z);
     return group;
   }
 
@@ -872,29 +906,18 @@ export class RoomReconstruction {
         points: this.generateProceduralPoints(5.2, 4.2, 2.8, 6000),
         defaultItems: [
           { type: 'desk', position: { x: 0, y: 0, z: -1.2 }, rotationY: 0 },
-          { type: 'mannequin', position: { x: 0, y: 0, z: -0.6 }, rotationY: Math.PI },
           { type: 'plant', position: { x: 2.0, y: 0, z: -1.7 }, rotationY: 0 },
           { type: 'lamp', position: { x: -2.0, y: 0, z: -1.6 }, rotationY: 0 }
         ],
         aiDetectedObjects: [
           {
             id: 'ai_desk_1',
-            class: 'dining table',
+            class: 'desk',
             label: 'Escritorio Tech',
             score: 94,
             depth: 1.8,
             position3D: { x: 0, y: 0, z: -1.2 },
             size3D: { width: 1.4, height: 0.75, depth: 0.8 },
-            timestamp: Date.now()
-          },
-          {
-            id: 'ai_person_1',
-            class: 'person',
-            label: 'Persona / Sujeto (1:1)',
-            score: 98,
-            depth: 1.5,
-            position3D: { x: 0, y: 0, z: -0.6 },
-            size3D: { width: 0.5, height: 1.75, depth: 0.4 },
             timestamp: Date.now()
           }
         ]

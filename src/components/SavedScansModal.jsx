@@ -16,6 +16,7 @@ export function SavedScansModal({ isOpen, onClose, onSelectScan }) {
       bounds: preset.bounds,
       points: preset.points,
       defaultItems: preset.defaultItems,
+      aiDetectedObjects: preset.aiDetectedObjects || [],
       timestamp: Date.now()
     });
     onClose();
