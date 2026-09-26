@@ -15,14 +15,15 @@ import {
   Scan,
   Compass,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Home
 } from 'lucide-react';
 import { SpatialEngine } from '../services/spatialEngine';
 import { AIVisionDetector } from '../services/aiVisionDetector';
 import { SpatialObjectManager } from '../services/spatialObjectManager';
 import { RoomReconstruction } from '../services/roomReconstruction';
 
-export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR, onOpenFlyConnectome }) {
+export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR, onOpenFlyConnectome, onBackToLobby }) {
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const engineRef = useRef(null);
@@ -390,6 +391,17 @@ export function CameraScanner({ onCompleteScan, onLoadPreset, onSwitchToRealAR, 
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-2">
+          {onBackToLobby && (
+            <button
+              onClick={onBackToLobby}
+              className="px-2.5 py-1.5 rounded-full text-[10px] font-bold glass-btn text-cyan-300 hover:text-white flex items-center space-x-1"
+              title="Volver al Menú Principal (Lobby)"
+            >
+              <Home className="w-3 h-3 text-cyan-400" />
+              <span>Lobby</span>
+            </button>
+          )}
+
           {onOpenFlyConnectome && (
             <button
               onClick={onOpenFlyConnectome}

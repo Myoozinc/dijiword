@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Play, Pause, RotateCcw, Camera, Eye, Info, Scan, Sparkles, AlertTriangle, Box
+  Play, Pause, RotateCcw, Camera, Eye, Info, Scan, Sparkles, AlertTriangle, Box, Home
 } from 'lucide-react';
 import { Xr8SpatialEngine } from '../services/xr8Engine';
 import { RoomReconstruction } from '../services/roomReconstruction';
@@ -16,7 +16,7 @@ import { SpatialObjectManager } from '../services/spatialObjectManager';
  * can fall back to the heuristic <CameraScanner /> instead of showing a
  * broken screen.
  */
-export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported, onOpenFlyConnectome }) {
+export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported, onOpenFlyConnectome, onBackToLobby }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const rafRef = useRef(null);
@@ -188,6 +188,14 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported, on
               Usar Escáner Básico (Sin SLAM)
             </button>
           )}
+          {onBackToLobby && (
+            <button
+              onClick={onBackToLobby}
+              className="w-full mt-2 py-2 rounded-xl text-cyan-400 hover:text-cyan-300 text-xs font-semibold border border-cyan-500/20 transition"
+            >
+              Volver al Menú Principal (Lobby)
+            </button>
+          )}
         </div>
       )}
 
@@ -232,6 +240,16 @@ export function Xr8RoomScanner({ onCompleteScan, onLoadPreset, onUnsupported, on
               </div>
             </div>
             <div className="flex items-center space-x-2">
+              {onBackToLobby && (
+                <button
+                  onClick={onBackToLobby}
+                  className="px-2.5 py-1.5 rounded-full text-[10px] font-bold glass-btn text-cyan-300 hover:text-white flex items-center space-x-1"
+                  title="Volver al Menú Principal (Lobby)"
+                >
+                  <Home className="w-3 h-3 text-cyan-400" />
+                  <span>Lobby</span>
+                </button>
+              )}
               {onUnsupported && (
                 <button
                   onClick={() => onUnsupported()}

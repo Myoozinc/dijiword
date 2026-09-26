@@ -24,12 +24,13 @@ import {
   ChevronDown,
   ChevronUp,
   Target,
-  Activity
+  Activity,
+  Home
 } from 'lucide-react';
 import { RoomReconstruction } from '../services/roomReconstruction';
 import { Exporter } from '../services/exporter';
 
-export function SimulationViewer({ scanData, onBackToScan, onOpenFlyConnectome }) {
+export function SimulationViewer({ scanData, onBackToScan, onOpenFlyConnectome, onBackToLobby }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -602,6 +603,17 @@ export function SimulationViewer({ scanData, onBackToScan, onOpenFlyConnectome }
       {/* Top Floating Control Bar */}
       <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 bg-gradient-to-b from-black/85 via-black/40 to-transparent pointer-events-none">
         <div className="flex items-center space-x-2 pointer-events-auto">
+          {onBackToLobby && (
+            <button
+              onClick={onBackToLobby}
+              className="p-2 rounded-xl glass-btn text-cyan-300 hover:text-white flex items-center space-x-1"
+              title="Volver al Menú Principal (Lobby)"
+            >
+              <Home className="w-4 h-4" />
+              <span className="text-xs font-semibold hidden sm:inline">Lobby</span>
+            </button>
+          )}
+
           <button
             onClick={onBackToScan}
             className="p-2 rounded-xl glass-btn text-slate-300 hover:text-white flex items-center space-x-1"
@@ -613,12 +625,12 @@ export function SimulationViewer({ scanData, onBackToScan, onOpenFlyConnectome }
           
           {onOpenFlyConnectome && (
             <button
-              onClick={onOpenFlyConnectome}
-              className="px-2.5 py-1.5 rounded-xl glass-btn text-xs font-semibold text-emerald-400 hover:text-emerald-200 border border-emerald-500/30 flex items-center space-x-1"
-              title="Abrir Simulación Conectoma Mosca (Drosophila MaleCNS)"
+              onClick={() => onOpenFlyConnectome(scanData)}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-xs font-bold text-white shadow-lg shadow-emerald-500/25 border border-emerald-400/50 flex items-center space-x-1.5 active:scale-95 transition"
+              title="Soltar la mosca biomecánica dentro de este cuarto escaneado"
             >
-              <span>🪰</span>
-              <span className="hidden sm:inline">Mosca 3D</span>
+              <span className="text-sm">🪰</span>
+              <span className="font-extrabold tracking-wide">Meter Mosca en este Cuarto</span>
             </button>
           )}
 

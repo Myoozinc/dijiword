@@ -33,7 +33,8 @@ import {
   Minimize2,
   Video,
   Utensils,
-  Cpu
+  Cpu,
+  Home
 } from 'lucide-react';
 import { 
   FlyConnectomeEngine, 
@@ -41,8 +42,9 @@ import {
   HOUSEHOLD_ODOR_PRODUCTS 
 } from '../services/flyConnectomeEngine';
 import { KitchenEnvironment } from '../services/kitchenEnvironment';
+import { RoomReconstruction } from '../services/roomReconstruction';
 
-export function FlySimulationViewer({ onBackToRoomScanner }) {
+export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scannedRoomData }) {
   const containerRef = useRef(null);
   const flyContainerRef = useRef(null);
 
@@ -56,10 +58,16 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
   const [showDataModal, setShowDataModal] = useState(false);
   const [flyHeadingAngle, setFlyHeadingAngle] = useState(0);
 
-  // 3D Environment mode: 'kitchen' (Virtual Kitchen) vs 'arena' (Laboratory Arena)
-  const [activeEnvironment, setActiveEnvironment] = useState('kitchen');
+  // 3D Environment mode: 'kitchen' (Virtual Kitchen) | 'scanned_room' (Habitación Escaneada) | 'arena' (Laboratory Arena)
+  const [currentRoomScan, setCurrentRoomScan] = useState(() => {
+    return scannedRoomData || RoomReconstruction.getPresetRooms()[0];
+  });
+  const [activeEnvironment, setActiveEnvironment] = useState(() => {
+    return scannedRoomData ? 'scanned_room' : 'kitchen';
+  });
   const kitchenDataRef = useRef(null);
   const arenaGroupRef = useRef(null);
+  const scannedRoomGroupRef = useRef(null);
 
   // Massive Neural Connectome (Apple M5 Ultra GPU Mode: 5,200+ Neurons)
   const [connectomeDensity, setConnectomeDensity] = useState('m5_ultra'); // 'm5_ultra' | 'high' | 'medium'
@@ -342,6 +350,24 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     scene.add(kitchenData.kitchenRoot);
 
     // 2. Build Laboratory Arena Environment
+    const arenaFloorGeo = new THREE.CylinderGeometry(5.0, 5.0, 0.1, 48);
+    const arenaFloorMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      roughness: 0.7,
+      metalness: 0.1
+    });
+    const arenaFloor = new THREE.Mesh(arenaFloorGeo, arenaFloorMat);
+    arenaFloor.position.y = -0.05;
+    arenaFloor.receiveShadow = true;
+
+    const arenaGrid = new THREE.GridHelper(10, 20, 0x06b6d4, 0x1e293b);
+    arenaGrid.position.y = 0.005;
+
+    const ringGeo = new THREE.TorusGeometry(5.0, 0.06, 16, 64);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+    ringMesh.rotation.x = Math.PI / 2;
+
     const arenaGroup = new THREE.Group();
     arenaGroup.add(targetLight);
     arenaGroup.add(foodGroup);
@@ -352,9 +378,38 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     arenaGroupRef.current = arenaGroup;
     scene.add(arenaGroup);
 
-    // Environment visibility
+    // 3. Build Scanned Room Environment (From user scan or high-detail room preset)
+    const scannedRoomGroup = new THREE.Group();
+    scannedRoomGroup.name = 'ScannedRoomEnvironment';
+    const roomToUse = currentRoomScan || RoomReconstruction.getPresetRooms()[0];
+    if (roomToUse && roomToUse.bounds) {
+      try {
+        const roomMesh = RoomReconstruction.buildRoomMesh(roomToUse.bounds, roomToUse.keyframes || [], false);
+        scannedRoomGroup.add(roomMesh);
+        if (roomToUse.points && roomToUse.points.length > 0) {
+          const pointCloud = RoomReconstruction.createPointCloud(roomToUse.points, 'rgb');
+          scannedRoomGroup.add(pointCloud);
+        }
+        if (roomToUse.aiDetectedObjects && roomToUse.aiDetectedObjects.length > 0) {
+          roomToUse.aiDetectedObjects.forEach(obj => {
+            const m = RoomReconstruction.createAIObjectMesh(obj);
+            if (m) scannedRoomGroup.add(m);
+          });
+        }
+        const roomLight = new THREE.PointLight(0xfff7ed, 2.5, 14);
+        roomLight.position.set(roomToUse.bounds.center.x, roomToUse.bounds.max.y - 0.35, roomToUse.bounds.center.z);
+        scannedRoomGroup.add(roomLight);
+      } catch (err) {
+        console.warn('Error building scanned room in fly scene:', err);
+      }
+    }
+    scannedRoomGroupRef.current = scannedRoomGroup;
+    scene.add(scannedRoomGroup);
+
+    // Initial Environment visibility
     kitchenData.kitchenRoot.visible = activeEnvironment === 'kitchen';
     arenaGroup.visible = activeEnvironment === 'arena';
+    scannedRoomGroup.visible = activeEnvironment === 'scanned_room';
 
     // Build Biomechanical Fly Model (FlyGym)
     const { flyRoot, leftWing, rightWing, legNodes } = FlyConnectomeEngine.buildFlyGymModel();
@@ -366,6 +421,14 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
       flyRoot.position.set(0, 1.02, 0); // On quartz countertop
       camera.position.set(0, 2.6, 3.4);
       controls.target.set(0, 1.2, 0);
+    } else if (activeEnvironment === 'scanned_room' && roomToUse?.bounds) {
+      const firstObj = roomToUse.aiDetectedObjects?.[0];
+      const sX = firstObj ? firstObj.position.x : roomToUse.bounds.center.x;
+      const sZ = firstObj ? firstObj.position.z : roomToUse.bounds.center.z;
+      const sY = firstObj ? (firstObj.position.y + 0.35) : (roomToUse.bounds.min.y + 0.05);
+      flyRoot.position.set(sX, sY, sZ);
+      camera.position.set(sX, sY + 1.2, sZ + 2.0);
+      controls.target.set(sX, sY + 0.2, sZ);
     } else {
       flyRoot.position.set(0, 0, 0); // Arena floor
     }
@@ -390,11 +453,12 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
     };
   }, []);
 
-  // 2.2 Dynamic Environment Switching (Kitchen vs Arena)
+  // 2.2 Dynamic Environment Switching (Kitchen vs Scanned Room vs Arena)
   useEffect(() => {
-    if (kitchenDataRef.current && arenaGroupRef.current) {
+    if (kitchenDataRef.current && arenaGroupRef.current && scannedRoomGroupRef.current) {
       kitchenDataRef.current.kitchenRoot.visible = activeEnvironment === 'kitchen';
       arenaGroupRef.current.visible = activeEnvironment === 'arena';
+      scannedRoomGroupRef.current.visible = activeEnvironment === 'scanned_room';
     }
     if (flyModelRef.current) {
       if (activeEnvironment === 'kitchen') {
@@ -403,6 +467,18 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
         if (flyCameraRef.current && flyControlsRef.current) {
           flyCameraRef.current.position.set(0, 2.6, 3.4);
           flyControlsRef.current.target.set(0, 1.2, 0);
+        }
+      } else if (activeEnvironment === 'scanned_room') {
+        const room = currentRoomScan || RoomReconstruction.getPresetRooms()[0];
+        const firstObj = room?.aiDetectedObjects?.[0];
+        const sX = firstObj ? firstObj.position.x : (room?.bounds?.center?.x || 0);
+        const sZ = firstObj ? firstObj.position.z : (room?.bounds?.center?.z || 0);
+        const sY = firstObj ? (firstObj.position.y + 0.35) : ((room?.bounds?.min?.y || 0) + 0.05);
+        flyModelRef.current.position.set(sX, sY, sZ);
+        flightStateRef.current.targetY = sY;
+        if (flyCameraRef.current && flyControlsRef.current) {
+          flyCameraRef.current.position.set(sX, sY + 1.2, sZ + 2.0);
+          flyControlsRef.current.target.set(sX, sY + 0.2, sZ);
         }
       } else {
         flyModelRef.current.position.set(0, 0, 0);
@@ -413,7 +489,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
         }
       }
     }
-  }, [activeEnvironment]);
+  }, [activeEnvironment, currentRoomScan]);
 
   // 2.5 Initialize Live First-Person Compound Eye WebGL Viewport
   useEffect(() => {
@@ -540,7 +616,13 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
           // Memory decay over time
           memoryEngineRef.current.decayMemory(delta);
 
-          const groundLevelY = activeEnvironment === 'kitchen' ? 1.02 : 0.0;
+          const roomBounds = (activeEnvironment === 'scanned_room' && currentRoomScan?.bounds) ? currentRoomScan.bounds : null;
+          const roomFirstObj = (activeEnvironment === 'scanned_room' && currentRoomScan?.aiDetectedObjects?.[0]) ? currentRoomScan.aiDetectedObjects[0] : null;
+          const groundLevelY = activeEnvironment === 'kitchen' 
+            ? 1.02 
+            : activeEnvironment === 'scanned_room' 
+            ? (roomFirstObj ? roomFirstObj.position.y + 0.35 : (roomBounds ? roomBounds.min.y + 0.05 : 0.0))
+            : 0.0;
 
           // Autonomous Free Flight Cycles in "Libre" Status
           if (activeStimulus === 'none') {
@@ -548,7 +630,11 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             if (!isFlying && flightStateRef.current.flyPhaseTimer > 9.0) {
               setIsFlying(true);
               flightStateRef.current.flyPhaseTimer = 0;
-              flightStateRef.current.targetY = activeEnvironment === 'kitchen' ? 2.0 + Math.random() * 0.7 : 1.3 + Math.random() * 0.9;
+              flightStateRef.current.targetY = activeEnvironment === 'kitchen' 
+                ? 2.0 + Math.random() * 0.7 
+                : activeEnvironment === 'scanned_room'
+                ? ((roomBounds?.min?.y || 0) + (roomBounds?.max?.y || 2.4)) * 0.6
+                : 1.3 + Math.random() * 0.9;
             } else if (isFlying && flightStateRef.current.flyPhaseTimer > 12.0) {
               flightStateRef.current.targetY = groundLevelY;
               if (Math.abs(flyModelRef.current.position.y - groundLevelY) <= 0.08) {
@@ -570,13 +656,23 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             const flightSpeed = 0.038 * (firingRateHz / 4.2);
             flyModelRef.current.translateZ(flightSpeed);
 
-            // Perimeter boundary checks (Kitchen Room Airspace vs Arena)
+            // Perimeter boundary checks (Kitchen Room Airspace vs Scanned Room vs Arena)
             if (activeEnvironment === 'kitchen') {
               const pX = flyModelRef.current.position.x;
               const pZ = flyModelRef.current.position.z;
               if (Math.abs(pX) > 3.2 || Math.abs(pZ) > 3.2) {
                 const inwardAngle = Math.atan2(-pX, -pZ);
                 flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, inwardAngle, 0.06);
+                flyModelRef.current.rotation.z = THREE.MathUtils.lerp(flyModelRef.current.rotation.z, 0.35, 0.08);
+              } else {
+                flyModelRef.current.rotation.z = THREE.MathUtils.lerp(flyModelRef.current.rotation.z, 0, 0.05);
+              }
+            } else if (activeEnvironment === 'scanned_room' && roomBounds) {
+              const pX = flyModelRef.current.position.x;
+              const pZ = flyModelRef.current.position.z;
+              if (pX < roomBounds.min.x + 0.3 || pX > roomBounds.max.x - 0.3 || pZ < roomBounds.min.z + 0.3 || pZ > roomBounds.max.z - 0.3) {
+                const inwardAngle = Math.atan2(roomBounds.center.x - pX, roomBounds.center.z - pZ);
+                flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, inwardAngle, 0.07);
                 flyModelRef.current.rotation.z = THREE.MathUtils.lerp(flyModelRef.current.rotation.z, 0.35, 0.08);
               } else {
                 flyModelRef.current.rotation.z = THREE.MathUtils.lerp(flyModelRef.current.rotation.z, 0, 0.05);
@@ -608,7 +704,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             }
           }
 
-          // Target Mapping (Kitchen real 3D items vs Arena beacon)
+          // Target Mapping (Kitchen real 3D items vs Scanned Room detected furniture vs Arena beacon)
           let targetPos = foodBeaconRef.current ? foodBeaconRef.current.position : new THREE.Vector3(2.4, 0.35, -2.0);
           if (activeEnvironment === 'kitchen' && kitchenDataRef.current) {
             if (selectedStimulusIdx === 0 || selectedStimulusIdx === 2) {
@@ -620,6 +716,10 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             } else {
               targetPos = kitchenDataRef.current.trashGroup.position;
             }
+          } else if (activeEnvironment === 'scanned_room' && currentRoomScan?.aiDetectedObjects?.length > 0) {
+            const objs = currentRoomScan.aiDetectedObjects;
+            const objIdx = selectedStimulusIdx % objs.length;
+            targetPos = objs[objIdx].position;
           }
 
           // Household Odor Olfactory Response or Light Phototaxis
@@ -885,6 +985,16 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
       {/* Top Header & Navigation Bar */}
       <header className="relative z-30 flex items-center justify-between px-4 py-2.5 bg-black/60 backdrop-blur-md border-b border-cyan-500/20">
         <div className="flex items-center space-x-3">
+          {onBackToLobby && (
+            <button
+              onClick={onBackToLobby}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-xs font-semibold text-cyan-300 border border-slate-700 hover:border-cyan-500/40 transition shadow-sm"
+              title="Volver al Menú Principal (Lobby)"
+            >
+              <Home className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Lobby</span>
+            </button>
+          )}
           <button
             onClick={onBackToRoomScanner}
             className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
@@ -1124,7 +1234,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
             <div className="p-1 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700 flex items-center space-x-1 shadow-xl">
               <button
                 onClick={() => setActiveEnvironment('kitchen')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
                   activeEnvironment === 'kitchen'
                     ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow ring-1 ring-amber-400'
                     : 'text-slate-400 hover:text-white'
@@ -1132,11 +1242,23 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
                 title="Cocina virtual hiperrealista con encimera de cuarzo, frutero con plátanos, vinagre y lámpara colgante"
               >
                 <Utensils className="w-3.5 h-3.5" />
-                <span>🍽️ Cocina 3D</span>
+                <span>🍽️ Cocina</span>
+              </button>
+              <button
+                onClick={() => setActiveEnvironment('scanned_room')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                  activeEnvironment === 'scanned_room'
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow ring-1 ring-purple-400'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Habitación 3D (suelo, muros y muebles detectados)"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span>🏠 Mi Cuarto</span>
               </button>
               <button
                 onClick={() => setActiveEnvironment('arena')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
                   activeEnvironment === 'arena'
                     ? 'bg-cyan-600 text-white shadow ring-1 ring-cyan-400'
                     : 'text-slate-400 hover:text-white'
@@ -1144,7 +1266,7 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
                 title="Arena científica circular de laboratorio con retícula de suelo"
               >
                 <Bug className="w-3.5 h-3.5" />
-                <span>🔬 Arena Lab</span>
+                <span>🔬 Arena</span>
               </button>
             </div>
 
@@ -1207,20 +1329,30 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
               <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
                 isFlying ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300'
               }`}>
-                {isFlying ? '🚀 EN VUELO 3D' : activeEnvironment === 'kitchen' ? '🍽️ EN ENCIMERA' : '🪰 EN SUELO'}
+                {isFlying ? '🚀 EN VUELO 3D' : activeEnvironment === 'kitchen' ? '🍽️ EN ENCIMERA' : activeEnvironment === 'scanned_room' ? '🏠 EN HABITACIÓN' : '🪰 EN SUELO'}
               </span>
             </div>
             <div className="mt-2 flex flex-col space-y-1 text-[10px] text-slate-300 font-mono">
               <div className="flex justify-between">
                 <span>Hábitat:</span>
-                <span className="text-cyan-300 font-bold">{activeEnvironment === 'kitchen' ? 'Cocina 3D (Isla)' : 'Arena Laboratorio'}</span>
+                <span className="text-cyan-300 font-bold truncate max-w-[120px]">
+                  {activeEnvironment === 'kitchen' 
+                    ? 'Cocina 3D (Isla)' 
+                    : activeEnvironment === 'scanned_room'
+                    ? (currentRoomScan?.name || 'Mi Cuarto 3D')
+                    : 'Arena Laboratorio'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Altitud 3D:</span>
                 <span className={isFlying ? "text-amber-300 font-bold" : "text-slate-400"}>
                   {isFlying
                     ? `${(flyModelRef.current?.position.y || (activeEnvironment === 'kitchen' ? 2.1 : 1.6)).toFixed(2)} m`
-                    : activeEnvironment === 'kitchen' ? '1.02 m (Encimera)' : '0.0 m (Suelo)'}
+                    : activeEnvironment === 'kitchen' 
+                    ? '1.02 m (Encimera)' 
+                    : activeEnvironment === 'scanned_room'
+                    ? `${(flyModelRef.current?.position.y || 0.4).toFixed(2)} m (Mueble/Piso)`
+                    : '0.0 m (Suelo)'}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -1249,7 +1381,15 @@ export function FlySimulationViewer({ onBackToRoomScanner }) {
               }`}
             >
               <Rocket className="w-3.5 h-3.5" />
-              <span>{isFlying ? (activeEnvironment === 'kitchen' ? 'Aterrizar en Encimera' : 'Aterrizar en Suelo') : 'Despegar a Volar 3D'}</span>
+              <span>
+                {isFlying 
+                  ? (activeEnvironment === 'kitchen' 
+                      ? 'Aterrizar en Encimera' 
+                      : activeEnvironment === 'scanned_room'
+                      ? 'Aterrizar en Habitación'
+                      : 'Aterrizar en Suelo') 
+                  : 'Despegar a Volar 3D'}
+              </span>
             </button>
           </div>
         </div>
