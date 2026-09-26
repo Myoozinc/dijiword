@@ -35,12 +35,22 @@ import {
   Video,
   Utensils,
   Cpu,
-  Home
+  Home,
+  MousePointer,
+  Crosshair,
+  Target,
+  Radio,
+  Trash2,
+  HelpCircle,
+  Fingerprint,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   FlyConnectomeEngine, 
   FlyLearningMemoryEngine, 
-  HOUSEHOLD_ODOR_PRODUCTS 
+  HOUSEHOLD_ODOR_PRODUCTS,
+  CANONICAL_NEUROPILS_DB,
+  FLYWIRE_NEURON_DATABASE
 } from '../services/flyConnectomeEngine';
 import { flyM5Bridge } from '../services/flyM5BridgeService';
 import { KitchenEnvironment } from '../services/kitchenEnvironment';
@@ -176,6 +186,50 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     weightsAvoidance: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
   });
 
+  // Direct Interactive Bio-Tools: 'inspect' | 'tap' | 'food' | 'repellent' | 'laser' | 'wind'
+  const [activeInteractionMode, setActiveInteractionMode] = useState('inspect');
+
+  // Placed Interactive Stimuli (Simultaneous Multi-Source Scents in 3D Space)
+  const [placedStimuli, setPlacedStimuli] = useState([
+    {
+      id: 'food_init_1',
+      type: 'food',
+      name: 'Néctar de Fruta',
+      position: new THREE.Vector3(0.85, 1.02, -0.45),
+      valence: 0.95,
+      color: 0xf59e0b
+    }
+  ]);
+  const placedStimuliGroupRef = useRef(new THREE.Group());
+
+  // Interactive Laser Pointer Stimulus (Phototaxis)
+  const [laserActive, setLaserActive] = useState(false);
+  const laserDotMeshRef = useRef(null);
+  const laserTargetPosRef = useRef(new THREE.Vector3(0, 1.02, 0));
+
+  // Interactive Surface Tap (Shockwave ripples & Giant Fiber escape reflex)
+  const shockwavesGroupRef = useRef(new THREE.Group());
+  const lastTapEventRef = useRef(null);
+  const [lastInteractionFeedback, setLastInteractionFeedback] = useState(null);
+
+  // Connectome Deep Scientific Inspector & Neuropil Labels
+  const [showNeuropilLabels, setShowNeuropilLabels] = useState(true);
+  const [selectedConnectomeEntity, setSelectedConnectomeEntity] = useState(null);
+  const [membranePotentialVm, setMembranePotentialVm] = useState(-65.0);
+  const [injectedCurrentActive, setInjectedCurrentActive] = useState(false);
+
+  // 6-Channel Electrophysiological Spike Raster
+  const [showSpikeRasterHUD, setShowSpikeRasterHUD] = useState(true);
+  const spikeCanvasRef = useRef(null);
+  const spikeRasterEventsRef = useRef({
+    ch1_dm1: false,
+    ch2_gr5a: false,
+    ch3_lptc: false,
+    ch4_gf: false,
+    ch5_epg: 0,
+    ch6_vnc: 4.2
+  });
+
   // Three.js scene refs for Connectome
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -239,7 +293,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     scene.add(dirLight2);
 
     // Build Anatomical Neuropil Volumes
-    const neuropilsGroup = FlyConnectomeEngine.buildNeuropilCompartments();
+    const neuropilsGroup = FlyConnectomeEngine.buildNeuropilCompartments(showNeuropilLabels);
     neuropilsGroupRef.current = neuropilsGroup;
     scene.add(neuropilsGroup);
 
@@ -257,6 +311,65 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
       scene.add(apSystem.pointsMesh);
     }
 
+    // Interactive Raycaster for Connectome Inspection (Click to view FlyWire Dossier)
+    const connectomeRaycaster = new THREE.Raycaster();
+    const connectomeMouse = new THREE.Vector2();
+
+    const handleConnectomeClick = (e) => {
+      if (!renderer.domElement || !cameraRef.current) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      connectomeMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      connectomeMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      connectomeRaycaster.setFromCamera(connectomeMouse, cameraRef.current);
+      const intersects = connectomeRaycaster.intersectObjects(neuropilsGroup.children, true);
+      
+      const hit = intersects.find(i => i.object.userData?.isNeuropilVolume);
+      if (hit) {
+        const u = hit.object.userData;
+        const nearestNeuron = FlyConnectomeEngine.getNearestFlyWireNeuron(hit.point);
+        setSelectedConnectomeEntity({
+          type: 'neuropil',
+          id: u.neuropilId,
+          name: u.name,
+          flywireRootId: u.flywireRootId,
+          category: u.category,
+          neuronsCount: u.neuronsCount,
+          synapseCount: u.synapseCount,
+          neurotransmitters: u.neurotransmitters,
+          description: u.description,
+          majorInputs: u.majorInputs,
+          majorOutputs: u.majorOutputs,
+          colorHex: u.colorHex,
+          nearestNeuron
+        });
+        return;
+      }
+
+      // Check nearest neuron from click position
+      const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+      const pt = new THREE.Vector3();
+      connectomeRaycaster.ray.intersectPlane(plane, pt);
+      if (pt) {
+        const nearest = FlyConnectomeEngine.getNearestFlyWireNeuron(pt);
+        if (nearest) {
+          setSelectedConnectomeEntity({
+            type: 'neuron',
+            id: nearest.id,
+            name: nearest.type,
+            flywireRootId: nearest.id,
+            category: nearest.neuropil,
+            neurotransmitters: [nearest.neurotransmitter],
+            description: nearest.functionDesc,
+            neuronData: nearest,
+            colorHex: '#38bdf8'
+          });
+        }
+      }
+    };
+
+    renderer.domElement.addEventListener('click', handleConnectomeClick);
+
     const handleResize = () => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = containerRef.current.clientWidth;
@@ -269,6 +382,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      renderer.domElement.removeEventListener('click', handleConnectomeClick);
       if (controlsRef.current) controlsRef.current.dispose();
       if (rendererRef.current && rendererRef.current.domElement) {
         rendererRef.current.domElement.remove();
@@ -538,6 +652,120 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     }
     scene.add(flyRoot);
 
+    // 3. Add Placed Stimuli Beacons Group and Shockwaves Group
+    scene.add(placedStimuliGroupRef.current);
+    scene.add(shockwavesGroupRef.current);
+
+    // 4. Interactive Laser Pointer Dot
+    const laserGeo = new THREE.RingGeometry(0.04, 0.09, 24);
+    const laserMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, side: THREE.DoubleSide });
+    const laserDot = new THREE.Mesh(laserGeo, laserMat);
+    laserDot.rotation.x = Math.PI / 2;
+    laserDot.position.set(0, 1.03, 0);
+    laserDot.visible = false;
+    scene.add(laserDot);
+    laserDotMeshRef.current = laserDot;
+
+    // 5. Interactive Raycaster for Direct Bio-Tools (Tap, Food, Repellent, Laser)
+    const flyRaycaster = new THREE.Raycaster();
+    const flyMouse = new THREE.Vector2();
+
+    const handleFlyPointerDown = (e) => {
+      if (!flyRendererRef.current || !flyCameraRef.current) return;
+      const rect = flyRendererRef.current.domElement.getBoundingClientRect();
+      flyMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      flyMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      flyRaycaster.setFromCamera(flyMouse, flyCameraRef.current);
+
+      const targets = [];
+      if (kitchenDataRef.current?.countertop) targets.push(kitchenDataRef.current.countertop);
+      if (kitchenDataRef.current?.island) targets.push(kitchenDataRef.current.island);
+      if (kitchenDataRef.current?.kitchenRoot) targets.push(kitchenDataRef.current.kitchenRoot);
+      if (arenaGroupRef.current) targets.push(arenaGroupRef.current);
+      if (scannedRoomGroupRef.current) targets.push(scannedRoomGroupRef.current);
+
+      const intersects = flyRaycaster.intersectObjects(targets, true);
+      let hitPoint = null;
+      if (intersects.length > 0) {
+        hitPoint = intersects[0].point;
+      } else {
+        const planeY = activeEnvironment === 'kitchen' ? 1.02 : 0;
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+        const pt = new THREE.Vector3();
+        if (flyRaycaster.ray.intersectPlane(groundPlane, pt)) {
+          hitPoint = pt;
+        }
+      }
+
+      if (!hitPoint) return;
+
+      const tool = activeInteractionModeRef.current;
+      if (tool === 'tap') {
+        const ripple = FlyConnectomeEngine.createShockwaveRippleMesh(hitPoint);
+        shockwavesGroupRef.current.add(ripple);
+        lastTapEventRef.current = { position: hitPoint.clone(), time: Date.now() };
+        setLastInteractionFeedback("💥 Golpe en superficie: Reflejo Giant Fiber de escape activado");
+        spikeRasterEventsRef.current.ch4_gf = true;
+      } else if (tool === 'food') {
+        const newItem = {
+          id: `food_${Date.now()}`,
+          type: 'food',
+          name: 'Néctar de Fruta',
+          position: hitPoint.clone(),
+          valence: 0.95,
+          color: 0xf59e0b
+        };
+        setPlacedStimuli(prev => [...prev, newItem]);
+        setLastInteractionFeedback("🍯 Cebo dulce colocado (+ Valencia)");
+      } else if (tool === 'repellent') {
+        const newItem = {
+          id: `rep_${Date.now()}`,
+          type: 'repellent',
+          name: 'Ajo Nociceptivo',
+          position: hitPoint.clone(),
+          valence: -0.88,
+          color: 0xf43f5e
+        };
+        setPlacedStimuli(prev => [...prev, newItem]);
+        setLastInteractionFeedback("🧄 Repelente colocado (- Valencia)");
+      } else if (tool === 'laser') {
+        setLaserActive(true);
+        if (laserDotMeshRef.current) {
+          laserDotMeshRef.current.visible = true;
+          laserDotMeshRef.current.position.copy(hitPoint);
+          laserDotMeshRef.current.position.y += 0.01;
+        }
+        laserTargetPosRef.current.copy(hitPoint);
+      }
+    };
+
+    const handleFlyPointerMove = (e) => {
+      if (!flyRendererRef.current || !flyCameraRef.current) return;
+      const rect = flyRendererRef.current.domElement.getBoundingClientRect();
+      flyMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      flyMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      flyRaycaster.setFromCamera(flyMouse, flyCameraRef.current);
+
+      if (activeInteractionModeRef.current === 'laser') {
+        const planeY = activeEnvironment === 'kitchen' ? 1.02 : 0;
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+        const pt = new THREE.Vector3();
+        if (flyRaycaster.ray.intersectPlane(groundPlane, pt)) {
+          laserTargetPosRef.current.copy(pt);
+          if (laserDotMeshRef.current) {
+            laserDotMeshRef.current.position.copy(pt);
+            laserDotMeshRef.current.position.y += 0.01;
+            laserDotMeshRef.current.visible = true;
+          }
+        }
+      }
+    };
+
+    renderer.domElement.addEventListener('pointerdown', handleFlyPointerDown);
+    renderer.domElement.addEventListener('pointermove', handleFlyPointerMove);
+
     const handleResize = () => {
       if (!flyContainerRef.current || !flyRendererRef.current || !flyCameraRef.current) return;
       const w = flyContainerRef.current.clientWidth;
@@ -550,6 +778,8 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      renderer.domElement.removeEventListener('pointerdown', handleFlyPointerDown);
+      renderer.domElement.removeEventListener('pointermove', handleFlyPointerMove);
       if (flyControlsRef.current) flyControlsRef.current.dispose();
       if (flyRendererRef.current && flyRendererRef.current.domElement) {
         flyRendererRef.current.domElement.remove();
@@ -564,6 +794,120 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
       flyModelRef.current.scale.setScalar(scale);
     }
   }, [flyScaleMode]);
+
+  // 2.11 Interaction Mode Sync & Placed Stimuli 3D Beacons Sync
+  const activeInteractionModeRef = useRef(activeInteractionMode);
+  useEffect(() => {
+    activeInteractionModeRef.current = activeInteractionMode;
+    if (activeInteractionMode !== 'laser' && laserDotMeshRef.current) {
+      laserDotMeshRef.current.visible = false;
+      setLaserActive(false);
+    }
+  }, [activeInteractionMode]);
+
+  const placedStimuliRef = useRef(placedStimuli);
+  useEffect(() => {
+    placedStimuliRef.current = placedStimuli;
+    if (placedStimuliGroupRef.current) {
+      while (placedStimuliGroupRef.current.children.length > 0) {
+        placedStimuliGroupRef.current.remove(placedStimuliGroupRef.current.children[0]);
+      }
+      placedStimuli.forEach(item => {
+        const beaconMesh = FlyConnectomeEngine.createStimulusBeaconMesh(item);
+        placedStimuliGroupRef.current.add(beaconMesh);
+      });
+    }
+  }, [placedStimuli]);
+
+  const handleClearStimuli = () => {
+    setPlacedStimuli([]);
+    if (placedStimuliGroupRef.current) {
+      while (placedStimuliGroupRef.current.children.length > 0) {
+        placedStimuliGroupRef.current.remove(placedStimuliGroupRef.current.children[0]);
+      }
+    }
+    setLastInteractionFeedback("🧹 Estímulos colocados limpiados de la escena");
+  };
+
+  // 2.12 Live Electrophysiological Spike Raster Canvas Renderer (MEA 6-CH)
+  useEffect(() => {
+    if (!showSpikeRasterHUD) return;
+    const canvas = spikeCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let rasterId;
+
+    const channelLabels = [
+      { name: 'CH1: DM1 (Olfacción Comida)', color: '#fbbf24' },
+      { name: 'CH2: Gr5a (Gusto Probóscide)', color: '#34d399' },
+      { name: 'CH3: LPTC (Visión/Flujo)', color: '#38bdf8' },
+      { name: 'CH4: Giant Fiber (Fuga/Tap)', color: '#f43f5e' },
+      { name: 'CH5: E-PG (Brújula Heading)', color: '#a855f7' },
+      { name: 'CH6: CPG (Motor Patas)', color: '#6366f1' }
+    ];
+
+    const traces = Array.from({ length: 6 }, () => Array(60).fill(0));
+    let t = 0;
+
+    const renderRaster = () => {
+      rasterId = requestAnimationFrame(renderRaster);
+      t += 1;
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.fillStyle = '#060913';
+      ctx.fillRect(0, 0, w, h);
+
+      const rowH = h / 6;
+      const ev = spikeRasterEventsRef.current;
+
+      for (let ch = 0; ch < 6; ch++) {
+        let isSpiking = false;
+        if (ch === 0) isSpiking = ev.ch1_dm1 && (Math.random() < 0.65);
+        else if (ch === 1) isSpiking = ev.ch2_gr5a && (Math.random() < 0.85);
+        else if (ch === 2) isSpiking = ev.ch3_lptc && (Math.random() < 0.45);
+        else if (ch === 3) isSpiking = ev.ch4_gf;
+        else if (ch === 4) isSpiking = Math.sin((ev.ch5_epg * Math.PI) / 180 + t * 0.1) > 0.75;
+        else if (ch === 5) isSpiking = Math.sin(t * (ev.ch6_vnc * 0.18)) > 0.7;
+
+        traces[ch].shift();
+        traces[ch].push(isSpiking ? 1 : 0);
+
+        // Track separator
+        ctx.strokeStyle = 'rgba(30, 41, 59, 0.7)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, ch * rowH);
+        ctx.lineTo(w, ch * rowH);
+        ctx.stroke();
+
+        // Channel label
+        ctx.fillStyle = channelLabels[ch].color;
+        ctx.font = '8px monospace';
+        ctx.fillText(channelLabels[ch].name, 4, ch * rowH + 11);
+
+        // Draw spikes
+        ctx.strokeStyle = channelLabels[ch].color;
+        ctx.lineWidth = 1.8;
+        for (let i = 0; i < traces[ch].length; i++) {
+          if (traces[ch][i] === 1) {
+            const x = (i / traces[ch].length) * (w - 110) + 110;
+            const yTop = ch * rowH + 2;
+            const yBot = (ch + 1) * rowH - 2;
+            ctx.beginPath();
+            ctx.moveTo(x, yBot);
+            ctx.lineTo(x, yTop);
+            ctx.stroke();
+          }
+        }
+      }
+    };
+
+    renderRaster();
+
+    return () => {
+      cancelAnimationFrame(rasterId);
+    };
+  }, [showSpikeRasterHUD]);
 
   // 2.15 Dynamic Kitchen Boundary Mode (Terrarium vs Open Kitchen Room)
   useEffect(() => {
@@ -884,90 +1228,176 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             targetPos = new THREE.Vector3(0, 0.5, 0);
           }
 
-          // Household Odor Olfactory Response or Light Phototaxis
-          const currentValence = activeStimulus === 'memory' ? memoryEngineRef.current.getNetValence(selectedStimulusIdx) : 0.0;
+          // ----------------------------------------------------
+          // MULTISENSORY VECTOR INTEGRATION (Simultaneous Stimuli)
+          // ----------------------------------------------------
           const flyPos = flyModelRef.current.position;
-          const dist = flyPos.distanceTo(targetPos);
+          const steerDir = new THREE.Vector3(0, 0, 0);
+          let netOlfactoryDrive = 0;
+          let closestFoodDist = Infinity;
+          let closestRepellentDist = Infinity;
+          let sensingFood = false;
+          let sensingRepellent = false;
 
-          // Animate live biological sensory reactions (Antennae vibration & glow, Proboscis tasting PER, Grooming reflex, Respiration)
+          // 1. Gather all active chemical stimuli (Preset Household Product + All User Placed Items)
+          const allChemicalSources = [];
+          if (activeStimulus === 'memory') {
+            allChemicalSources.push({
+              position: targetPos,
+              valence: memoryEngineRef.current.getNetValence(selectedStimulusIdx),
+              name: currentProduct.name,
+              isPreset: true
+            });
+          }
+          if (placedStimuliRef.current) {
+            placedStimuliRef.current.forEach(st => {
+              allChemicalSources.push({
+                position: st.position,
+                valence: st.valence,
+                name: st.name,
+                isPreset: false
+              });
+            });
+          }
+
+          // Calculate Olfactory Gradient Plume Vector Field
+          allChemicalSources.forEach(src => {
+            const d = flyPos.distanceTo(src.position);
+            if (src.valence > 0) {
+              closestFoodDist = Math.min(closestFoodDist, d);
+              if (d < 3.2) sensingFood = true;
+            } else {
+              closestRepellentDist = Math.min(closestRepellentDist, d);
+              if (d < 3.0) sensingRepellent = true;
+            }
+
+            if (d < 6.0) {
+              const concentration = Math.min(4.0, 1.2 / Math.max(0.12, d * d));
+              const dirToSrc = new THREE.Vector3().subVectors(src.position, flyPos).normalize();
+              dirToSrc.y = 0; // horizontal navigation
+              if (src.valence > 0) {
+                // Attraction vector
+                steerDir.addScaledVector(dirToSrc, src.valence * concentration * 1.2);
+                netOlfactoryDrive += src.valence * concentration;
+              } else {
+                // Repulsion vector (steers away!)
+                steerDir.addScaledVector(dirToSrc, src.valence * concentration * 2.2);
+                netOlfactoryDrive += src.valence * concentration;
+              }
+            }
+          });
+
+          // 2. Interactive Laser Pointer Stimulus (Phototaxis)
+          if (laserActive && laserTargetPosRef.current) {
+            const dLaser = flyPos.distanceTo(laserTargetPosRef.current);
+            if (dLaser > 0.12 && dLaser < 6.5) {
+              const laserDir = new THREE.Vector3().subVectors(laserTargetPosRef.current, flyPos).normalize();
+              laserDir.y = 0;
+              steerDir.addScaledVector(laserDir, 1.8);
+            }
+          }
+
+          // 3. Startle Tap / Tactile Shockwave (Giant Fiber escape takeoff)
+          const nowMs = Date.now();
+          let giantFiberFired = false;
+          if (lastTapEventRef.current && (nowMs - lastTapEventRef.current.time < 1200)) {
+            const dTap = flyPos.distanceTo(lastTapEventRef.current.position);
+            if (dTap < 2.5) {
+              giantFiberFired = true;
+              const escapeDir = new THREE.Vector3().subVectors(flyPos, lastTapEventRef.current.position).normalize();
+              escapeDir.y = 0.6; // Jump up and away
+              steerDir.addScaledVector(escapeDir, 4.5);
+              if (!isFlying) {
+                setIsFlying(true);
+                flightStateRef.current.targetY = 2.05 + Math.random() * 0.3;
+              }
+            }
+          }
+
+          // 4. Phototaxis ambient light (if light mode is on)
+          if (activeStimulus === 'light') {
+            let lampTarget = targetLightRef.current?.position || new THREE.Vector3(0, 2.5, 0);
+            if (activeEnvironment === 'kitchen' && kitchenDataRef.current?.lampGroup) {
+              lampTarget = kitchenDataRef.current.lampGroup.position;
+            }
+            const dLamp = flyPos.distanceTo(lampTarget);
+            if (dLamp > 0.3) {
+              const lightDir = new THREE.Vector3().subVectors(lampTarget, flyPos).normalize();
+              steerDir.addScaledVector(lightDir, 1.2);
+            }
+          }
+
+          // 5. Update shockwaves animation (expanding & fading rings)
+          if (shockwavesGroupRef.current) {
+            for (let i = shockwavesGroupRef.current.children.length - 1; i >= 0; i--) {
+              const ring = shockwavesGroupRef.current.children[i];
+              const age = nowMs - ring.userData.created;
+              if (age > ring.userData.maxDuration) {
+                shockwavesGroupRef.current.remove(ring);
+              } else {
+                const progress = age / ring.userData.maxDuration;
+                const scale = 1.0 + progress * 8.0;
+                ring.scale.set(scale, scale, 1);
+                ring.material.opacity = (1.0 - progress) * 0.9;
+              }
+            }
+          }
+
+          // 6. Update placed stimuli pulsing rings in 3D
+          if (placedStimuliGroupRef.current) {
+            placedStimuliGroupRef.current.children.forEach((beacon, idx) => {
+              if (beacon.userData?.ringMesh) {
+                const s = 1.0 + Math.sin(time * 4.0 + idx) * 0.2;
+                beacon.userData.ringMesh.scale.set(s, s, 1);
+              }
+              if (beacon.userData?.coreMesh) {
+                beacon.userData.coreMesh.rotation.y = time * 1.5;
+              }
+            });
+          }
+
+          // 7. Biological Sensation Update on Fly Anatomy
+          const compositeValence = netOlfactoryDrive !== 0 ? Math.tanh(netOlfactoryDrive) : 0;
+          const sensoryDist = Math.min(closestFoodDist, closestRepellentDist, flyPos.distanceTo(targetPos));
+
           FlyConnectomeEngine.updateBiologicalSensoryResponses(
             flyPartsRef.current,
             time,
-            currentValence,
-            dist,
+            compositeValence,
+            sensoryDist,
             isFlying
           );
 
-          if (activeStimulus === 'memory') {
+          // 8. Update Electrophysiological Spike Events
+          spikeRasterEventsRef.current = {
+            ch1_dm1: sensingFood,
+            ch2_gr5a: !isFlying && closestFoodDist < 0.65,
+            ch3_lptc: Math.abs(visualTelemetry.opticalFlowHS) > 10,
+            ch4_gf: giantFiberFired || visualTelemetry.loomingAlert,
+            ch5_epg: flyHeadingAngle,
+            ch6_vnc: isFlying ? 50.0 : firingRateHz
+          };
 
-            if (currentValence > 0.1) {
-              // Attraction: Seek fruit bowl / vinegar bottle / cutting board
-              if (isFlying && dist < 1.4) {
-                flightStateRef.current.targetY = groundLevelY;
-                if (Math.abs(flyPos.y - groundLevelY) < 0.15) setIsFlying(false);
-              }
-              const targetYaw = Math.atan2(targetPos.x - flyPos.x, targetPos.z - flyPos.z);
-              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.05);
-              if (dist > 0.45) {
-                flyModelRef.current.translateZ(isFlying ? 0.035 : 0.016 * (firingRateHz / 4.2));
-              }
-              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
-            } else if (currentValence < -0.1) {
-              // Repulsion: Nociceptive takeoff & Escape flight
-              if (!isFlying && dist < 2.5) {
-                setIsFlying(true);
-                flightStateRef.current.targetY = 2.1 + Math.random() * 0.2;
-              }
-              const escapeYaw = Math.atan2(flyPos.x - targetPos.x, flyPos.z - targetPos.z);
-              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, escapeYaw, 0.07);
-              flyModelRef.current.translateZ(isFlying ? 0.045 : 0.022 * (firingRateHz / 4.2));
-              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
-            } else {
-              // Neutral exploratory wandering
-              flyModelRef.current.rotation.y += Math.sin(time * 0.5) * 0.008;
-              if (!isFlying) flyModelRef.current.translateZ(0.012 * (firingRateHz / 4.2));
-              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+          // 9. Execute Combined Steering Movement
+          if (steerDir.lengthSq() > 0.001) {
+            const targetYaw = Math.atan2(steerDir.x, steerDir.z);
+            flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.065);
+            
+            // Speed modulation based on stimulus urgency
+            let moveSpeed = (isFlying ? 0.038 : 0.016) * (firingRateHz / 4.2);
+            if (giantFiberFired || sensingRepellent) moveSpeed *= 1.45; // Escape speed boost
+            
+            // Decelerate if close to food and landed to feed
+            if (!isFlying && closestFoodDist < 0.45) {
+              moveSpeed *= 0.15;
             }
-          } else if (activeStimulus === 'light') {
-            if (activeEnvironment === 'kitchen' && kitchenDataRef.current) {
-              const lampPos = kitchenDataRef.current.lampGroup.position;
-              if (!isFlying) {
-                setIsFlying(true);
-              }
-              if (kitchenBoundaryMode === 'terrarium') {
-                flightStateRef.current.targetY = 2.15; // Under glass ceiling lid
-                const orbitAngle = time * 0.85;
-                const orbitX = Math.cos(orbitAngle) * 0.75;
-                const orbitZ = Math.sin(orbitAngle) * 0.75;
-                const targetYaw = Math.atan2(orbitX - flyModelRef.current.position.x, orbitZ - flyModelRef.current.position.z);
-                flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.06);
-                flyModelRef.current.translateZ(0.038 * (firingRateHz / 4.2));
-                setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
-              } else {
-                flightStateRef.current.targetY = 2.65; // Fly up to overhead Edison lamp
-                const orbitAngle = time * 0.85;
-                const orbitX = lampPos.x + Math.cos(orbitAngle) * 0.95;
-                const orbitZ = lampPos.z + Math.sin(orbitAngle) * 0.95;
-                const targetYaw = Math.atan2(orbitX - flyModelRef.current.position.x, orbitZ - flyModelRef.current.position.z);
-                flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.06);
-                flyModelRef.current.translateZ(0.038 * (firingRateHz / 4.2));
-                setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
-              }
-            } else if (targetLightRef.current) {
-              const lightAngle = time * 0.45;
-              targetLightRef.current.position.x = Math.cos(lightAngle) * 3.2;
-              targetLightRef.current.position.z = Math.sin(lightAngle) * 3.2;
 
-              const targetYaw = Math.atan2(
-                targetLightRef.current.position.x - flyModelRef.current.position.x,
-                targetLightRef.current.position.z - flyModelRef.current.position.z
-              );
-              flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.04);
-              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
-            }
+            flyModelRef.current.translateZ(moveSpeed);
+            setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
           } else {
-            // Forward walking trajectory
+            // Neutral exploratory wandering
             flyModelRef.current.rotation.y += Math.sin(time * 0.5) * 0.008;
+            if (!isFlying) flyModelRef.current.translateZ(0.012 * (firingRateHz / 4.2));
             setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
           }
 
@@ -1644,6 +2074,156 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                 <Eye className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Mostrar Paneles</span>
               </button>
+            </div>
+          )}
+
+          {/* Interactive Bio-Toolbar (Simultaneous Stimuli & Direct Fly Interaction) */}
+          {!isImmersiveMode && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-auto">
+              <div className="flex items-center space-x-1 p-1 rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-cyan-500/40 shadow-2xl">
+                <button
+                  onClick={() => setActiveInteractionMode('inspect')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
+                    activeInteractionMode === 'inspect'
+                      ? 'bg-slate-700 text-white ring-1 ring-slate-400'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                  }`}
+                  title="Modo Cámara: Girar y explorar el espacio 3D"
+                >
+                  <MousePointer className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Explorar</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveInteractionMode('tap')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
+                    activeInteractionMode === 'tap'
+                      ? 'bg-rose-600 text-white shadow-lg ring-1 ring-rose-400 animate-pulse'
+                      : 'text-slate-400 hover:text-rose-400 hover:bg-slate-900'
+                  }`}
+                  title="Golpear superficie: Haz clic cerca de la mosca para sobresaltarla con el reflejo de escape Giant Fiber"
+                >
+                  <Fingerprint className="w-3.5 h-3.5 text-rose-300" />
+                  <span>👆 Tocar / Tap</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveInteractionMode('food')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
+                    activeInteractionMode === 'food'
+                      ? 'bg-amber-500 text-slate-950 shadow-lg font-extrabold ring-1 ring-amber-300 animate-pulse'
+                      : 'text-slate-400 hover:text-amber-400 hover:bg-slate-900'
+                  }`}
+                  title="Soltar cebo dulce: Haz clic en cualquier lugar para colocar gotas de néctar (+ Valencia)"
+                >
+                  <span>🍯 Poner Comida</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveInteractionMode('repellent')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
+                    activeInteractionMode === 'repellent'
+                      ? 'bg-red-600 text-white shadow-lg ring-1 ring-red-400 animate-pulse'
+                      : 'text-slate-400 hover:text-red-400 hover:bg-slate-900'
+                  }`}
+                  title="Soltar repelente: Haz clic para colocar ajo nociceptivo (- Valencia)"
+                >
+                  <span>🧄 Poner Repelente</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveInteractionMode('laser')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
+                    activeInteractionMode === 'laser'
+                      ? 'bg-emerald-600 text-white shadow-lg ring-1 ring-emerald-400 animate-pulse'
+                      : 'text-slate-400 hover:text-emerald-400 hover:bg-slate-900'
+                  }`}
+                  title="Puntero Láser: Mueve el cursor para proyectar un punto brillante que la mosca persigue"
+                >
+                  <Crosshair className="w-3.5 h-3.5 text-emerald-300" />
+                  <span className="hidden sm:inline">Láser</span>
+                </button>
+
+                {placedStimuli.length > 0 && (
+                  <button
+                    onClick={handleClearStimuli}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-900 transition"
+                    title="Limpiar todos los cebos y repelentes colocados"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setShowSpikeRasterHUD(!showSpikeRasterHUD)}
+                  className={`px-2 py-1.5 rounded-xl text-[10px] font-bold font-mono transition flex items-center space-x-1 ${
+                    showSpikeRasterHUD
+                      ? 'bg-purple-900/60 text-purple-300 border border-purple-500/40'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                  title="Mostrar / Ocultar panel de electrofisiología multicanal (Spike Raster)"
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                  <span>MEA 6-CH</span>
+                </button>
+              </div>
+
+              {/* Active Tool Guidance Badge */}
+              <div className="mt-1 px-3 py-0.5 rounded-full bg-slate-950/85 backdrop-blur-md border border-slate-800 text-[10px] text-cyan-300 font-mono shadow-lg flex items-center space-x-1.5 animate-fadeIn">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+                <span>
+                  {activeInteractionMode === 'tap'
+                    ? 'Haz clic en el suelo/encimera para golpear y disparar el reflejo Giant Fiber de escape'
+                    : activeInteractionMode === 'food'
+                    ? 'Haz clic en cualquier superficie para soltar cebo de alimento (puedes poner varios)'
+                    : activeInteractionMode === 'repellent'
+                    ? 'Haz clic para colocar repelente nociceptivo (ajo/ácido) y ver a la mosca huir o asearse'
+                    : activeInteractionMode === 'laser'
+                    ? 'Mueve el cursor para apuntar con el haz láser; los ojos compuestos lo rastrearán'
+                    : 'Modo exploración 3D libre · Selecciona una herramienta para interactuar'}
+                </span>
+                {lastInteractionFeedback && (
+                  <span className="text-amber-400 font-bold ml-1">· {lastInteractionFeedback}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Live 6-Channel Electrophysiological Spike Raster Monitor */}
+          {!isImmersiveMode && showSpikeRasterHUD && (
+            <div className="absolute top-16 right-3 z-20 w-72 sm:w-80 rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-purple-500/40 p-2.5 shadow-2xl transition-all pointer-events-auto">
+              <div className="flex items-center justify-between border-b border-purple-500/20 pb-1.5 mb-1.5">
+                <div className="flex items-center space-x-1.5">
+                  <Activity className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                  <span className="text-[10px] font-bold text-white uppercase tracking-wider">
+                    Electrofisiología Multicanal (MEA)
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <span className="text-[8px] font-mono px-1 rounded bg-purple-500/20 text-purple-300">
+                    6 CANALES EN VIVO
+                  </span>
+                  <button
+                    onClick={() => setShowSpikeRasterHUD(false)}
+                    className="text-slate-500 hover:text-white text-xs px-1"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              {/* Spike Canvas */}
+              <canvas
+                ref={spikeCanvasRef}
+                width={320}
+                height={120}
+                className="w-full h-28 rounded-lg bg-black border border-slate-800"
+              />
+
+              <div className="mt-1 flex items-center justify-between text-[7px] text-slate-400 font-mono">
+                <span>Latencia: &lt;2 ms</span>
+                <span className="text-emerald-400 font-bold">120 FPS Real-Time SNN</span>
+              </div>
             </div>
           )}
 
@@ -2938,6 +3518,131 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition active:scale-95"
               >
                 Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real FlyWire Codex Scientific Dossier Modal (Clicked Neuropil or Neuron) */}
+      {selectedConnectomeEntity && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="glass-panel p-6 rounded-3xl border border-cyan-500/50 max-w-xl w-full flex flex-col space-y-4 max-h-[92vh] overflow-y-auto shadow-[0_0_50px_rgba(6,182,212,0.25)]">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-cyan-500/30 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-400">
+                  <Brain className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-base font-extrabold text-white">
+                      {selectedConnectomeEntity.name}
+                    </h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold">
+                      {selectedConnectomeEntity.type === 'neuropil' ? 'Neuropilo Canónico' : 'Neurona Reconstruida'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 flex items-center space-x-2 font-mono">
+                    <span>FlyWire Root ID:</span>
+                    <span className="text-amber-400 font-bold select-all">{selectedConnectomeEntity.flywireRootId}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedConnectomeEntity(null)}
+                className="text-slate-400 hover:text-white font-bold px-3 py-1.5 rounded-xl bg-slate-800 text-xs transition"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            {/* Description & Biological Function */}
+            <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+              <p>{selectedConnectomeEntity.description}</p>
+            </div>
+
+            {/* Neurotransmitter Badges & Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center font-mono">
+              <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[8px] text-slate-400 block">Neurotransmisor</span>
+                <span className="text-[10px] font-bold text-emerald-400 truncate block">
+                  {selectedConnectomeEntity.neurotransmitters?.join(', ') || 'Acetilcolina'}
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[8px] text-slate-400 block">Población Neuronas</span>
+                <span className="text-xs font-bold text-cyan-300">
+                  {(selectedConnectomeEntity.neuronsCount || 1).toLocaleString()}
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[8px] text-slate-400 block">Sinapsis Reales</span>
+                <span className="text-xs font-bold text-purple-300">
+                  {(selectedConnectomeEntity.synapseCount || 120).toLocaleString()}
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[8px] text-slate-400 block">Microscopía</span>
+                <span className="text-[10px] font-bold text-yellow-400">ssTEM 4x4x40nm</span>
+              </div>
+            </div>
+
+            {/* Synaptic Pre/Post Wiring Diagram */}
+            {(selectedConnectomeEntity.nearestNeuron || selectedConnectomeEntity.neuronData) && (
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-slate-200">
+                  Conexiones Sinápticas Directas (Célula Representativa):
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono">
+                  {/* Pre-synaptic Inputs */}
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-cyan-500/20">
+                    <span className="text-cyan-400 font-bold block mb-1">Entradas Pre-Sinápticas:</span>
+                    <ul className="space-y-1 text-slate-300">
+                      {(selectedConnectomeEntity.nearestNeuron || selectedConnectomeEntity.neuronData).inputs?.map((inp, idx) => (
+                        <li key={idx} className="flex justify-between border-b border-slate-800 pb-0.5">
+                          <span className="truncate">{inp.type}</span>
+                          <span className="text-amber-400 font-bold">({inp.synapses} syn)</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Post-synaptic Targets */}
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-purple-500/20">
+                    <span className="text-purple-400 font-bold block mb-1">Dianas Post-Sinápticas:</span>
+                    <ul className="space-y-1 text-slate-300">
+                      {(selectedConnectomeEntity.nearestNeuron || selectedConnectomeEntity.neuronData).outputs?.map((out, idx) => (
+                        <li key={idx} className="flex justify-between border-b border-slate-800 pb-0.5">
+                          <span className="truncate">{out.type}</span>
+                          <span className="text-emerald-400 font-bold">({out.synapses} syn)</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Membrane Potential Stimulation Button */}
+            <div className="pt-2 flex items-center justify-between border-t border-slate-800">
+              <div className="text-[11px] font-mono text-slate-400">
+                Potencial Reposo: <span className="text-cyan-300 font-bold">-65.2 mV</span> · Umbral: <span className="text-rose-400 font-bold">-42.0 mV</span>
+              </div>
+              <button
+                onClick={() => {
+                  setInjectedCurrentActive(true);
+                  triggerDopaminePulse();
+                  setTimeout(() => setInjectedCurrentActive(false), 800);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                  injectedCurrentActive
+                    ? 'bg-amber-400 text-slate-950 font-extrabold ring-2 ring-yellow-200'
+                    : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>{injectedCurrentActive ? '⚡ ¡Despolarización Activa!' : 'Inyectar Corriente (+10 pA)'}</span>
               </button>
             </div>
           </div>
