@@ -1,0 +1,297 @@
+{
+  "dataset_name": "BANC v888 (Brain and Nerve Cord) / FlyWire / Janelia",
+  "citation": "Lee, Sterling, et al. (Harvard Medical School, HHMI Janelia, Princeton)",
+  "total_neurons_scanned": 169315,
+  "source_format": "Serial-section Transmission Electron Microscopy (ssTEM)",
+  "resolution_nm": [
+    4,
+    4,
+    40
+  ],
+  "bounds_nm": {
+    "min": [
+      83008.0,
+      38400.0,
+      90.0
+    ],
+    "max": [
+      960064.0,
+      1113024.0,
+      315405.0
+    ],
+    "center": [
+      521536.0,
+      575712.0,
+      157747.5
+    ],
+    "dimensions_um": [
+      877.0560302734375,
+      1074.6240234375,
+      315.31500244140625
+    ]
+  },
+  "neurotransmitters": {
+    "acetylcholine": {
+      "id": 1,
+      "name": "Acetylcholine (Coligérnico - Excitador)",
+      "color": "#06b6d4"
+    },
+    "glutamate": {
+      "id": 2,
+      "name": "Glutamate (Glutamatérgico - Excitador/Inhibidor)",
+      "color": "#10b981"
+    },
+    "gaba": {
+      "id": 3,
+      "name": "GABA (GABAérgico - Inhibidor Principal)",
+      "color": "#ef4444"
+    },
+    "dopamine": {
+      "id": 4,
+      "name": "Dopamine (Dopaminérgico - Aprendizaje / Recompensa)",
+      "color": "#f59e0b"
+    },
+    "histamine": {
+      "id": 5,
+      "name": "Histamine (Histaminérgico - Fotorreceptores)",
+      "color": "#8b5cf6"
+    },
+    "octopamine": {
+      "id": 6,
+      "name": "Octopamine (Octopaminérgico - Alerta / Vuelo)",
+      "color": "#ec4899"
+    },
+    "serotonin": {
+      "id": 7,
+      "name": "Serotonin (Serotoninérgico - Estado de Ánimo / Hambre)",
+      "color": "#3b82f6"
+    },
+    "tyramine": {
+      "id": 8,
+      "name": "Tyramine (Tiraminérgico - Modulador Motor)",
+      "color": "#14b8a6"
+    },
+    "unknown": {
+      "id": 0,
+      "name": "No Determinado / Glia",
+      "color": "#64748b"
+    }
+  },
+  "neurotransmitter_counts": {
+    "Acetylcholine (Coligérnico - Excitador)": 78672,
+    "Serotonin (Serotoninérgico - Estado de Ánimo / Hambre)": 1792,
+    "Glutamate (Glutamatérgico - Excitador/Inhibidor)": 22760,
+    "No Determinado / Glia": 31021,
+    "GABA (GABAérgico - Inhibidor Principal)": 20937,
+    "Octopamine (Octopaminérgico - Alerta / Vuelo)": 2184,
+    "Dopamine (Dopaminérgico - Aprendizaje / Recompensa)": 7946,
+    "Histamine (Histaminérgico - Fotorreceptores)": 3790,
+    "Tyramine (Tiraminérgico - Modulador Motor)": 213
+  },
+  "region_groups": {
+    "OPTIC_RIGHT": {
+      "id": 1,
+      "name": "Lóbulo Óptico Derecho (ME/LO/LOP)",
+      "color": "#38bdf8"
+    },
+    "OPTIC_LEFT": {
+      "id": 2,
+      "name": "Lóbulo Óptico Izquierdo (ME/LO/LOP)",
+      "color": "#0284c7"
+    },
+    "CENTRAL_BRAIN": {
+      "id": 3,
+      "name": "Cerebro Central / Complejo Central (EB/FB/PB/NO)",
+      "color": "#10b981"
+    },
+    "MUSHROOM_BODY": {
+      "id": 4,
+      "name": "Cuerpos Pedunculados (Calyx / Lobes - Memoria)",
+      "color": "#ec4899"
+    },
+    "ANTENNAL_LOBE": {
+      "id": 5,
+      "name": "Lóbulos Antenales (Olfato)",
+      "color": "#f59e0b"
+    },
+    "SEZ_GNG": {
+      "id": 6,
+      "name": "Zona Subesofágica / GNG (Gusto / Alimentación)",
+      "color": "#a855f7"
+    },
+    "VNC_T1": {
+      "id": 7,
+      "name": "Cordón Nervioso VNC T1 (Patas Delanteras)",
+      "color": "#f97316"
+    },
+    "VNC_T2": {
+      "id": 8,
+      "name": "Cordón Nervioso VNC T2 (Patas Medias / Alas)",
+      "color": "#ef4444"
+    },
+    "VNC_T3": {
+      "id": 9,
+      "name": "Cordón Nervioso VNC T3 (Patas Traseras)",
+      "color": "#e11d48"
+    },
+    "VNC_ABDOMEN": {
+      "id": 10,
+      "name": "Cordón Nervioso Abdominal (ABDNM)",
+      "color": "#6366f1"
+    },
+    "OTHER": {
+      "id": 0,
+      "name": "Otras Vías de Conexión",
+      "color": "#64748b"
+    }
+  },
+  "region_counts": {
+    "Lóbulos Antenales (Olfato)": 4357,
+    "Otras Vías de Conexión": 30455,
+    "Cordón Nervioso VNC T1 (Patas Delanteras)": 7727,
+    "Cordón Nervioso VNC T2 (Patas Medias / Alas)": 11427,
+    "Zona Subesofágica / GNG (Gusto / Alimentación)": 5707,
+    "Lóbulo Óptico Izquierdo (ME/LO/LOP)": 47424,
+    "Lóbulo Óptico Derecho (ME/LO/LOP)": 48693,
+    "Cordón Nervioso VNC T3 (Patas Traseras)": 3105,
+    "Cuerpos Pedunculados (Calyx / Lobes - Memoria)": 5097,
+    "Cerebro Central / Complejo Central (EB/FB/PB/NO)": 5323
+  },
+  "canonical_samples": [
+    {
+      "root_id": "720575941518780339",
+      "class": "Célula de Kenyon (Kenyon Cell)",
+      "role": "Memoria Asociativa Olfativa y Aprendizaje",
+      "region": "Cuerpos Pedunculados (Mushroom Body)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 99,
+      "synapses_out": 22
+    },
+    {
+      "root_id": "720575941584007775",
+      "class": "Célula de Kenyon (Kenyon Cell)",
+      "role": "Memoria Asociativa Olfativa y Aprendizaje",
+      "region": "Cuerpos Pedunculados (Mushroom Body)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 171,
+      "synapses_out": 54
+    },
+    {
+      "root_id": "720575941524791065",
+      "class": "Célula de Kenyon (Kenyon Cell)",
+      "role": "Memoria Asociativa Olfativa y Aprendizaje",
+      "region": "Cuerpos Pedunculados (Mushroom Body)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 95,
+      "synapses_out": 20
+    },
+    {
+      "root_id": "720575941658271568",
+      "class": "Célula de Kenyon (Kenyon Cell)",
+      "role": "Memoria Asociativa Olfativa y Aprendizaje",
+      "region": "Cuerpos Pedunculados (Mushroom Body)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 150,
+      "synapses_out": 21
+    },
+    {
+      "root_id": "720575941609026122",
+      "class": "Célula de Kenyon (Kenyon Cell)",
+      "role": "Memoria Asociativa Olfativa y Aprendizaje",
+      "region": "Cuerpos Pedunculados (Mushroom Body)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 100,
+      "synapses_out": 26
+    },
+    {
+      "root_id": "720575941579242321",
+      "class": "Neurona Brújula E-PG (Ellipsoid Body)",
+      "role": "Orientación Espacial y Brújula de Rumbo 360°",
+      "region": "Complejo Central (Central Complex)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 827,
+      "synapses_out": 837
+    },
+    {
+      "root_id": "720575941603555830",
+      "class": "Neurona Brújula E-PG (Ellipsoid Body)",
+      "role": "Orientación Espacial y Brújula de Rumbo 360°",
+      "region": "Complejo Central (Central Complex)",
+      "neurotransmitter": "gaba",
+      "synapses_in": 589,
+      "synapses_out": 1132
+    },
+    {
+      "root_id": "720575941403686691",
+      "class": "Neurona Brújula E-PG (Ellipsoid Body)",
+      "role": "Orientación Espacial y Brújula de Rumbo 360°",
+      "region": "Complejo Central (Central Complex)",
+      "neurotransmitter": "dopamine",
+      "synapses_in": 0,
+      "synapses_out": 0
+    },
+    {
+      "root_id": "720575941587952452",
+      "class": "Neurona Brújula E-PG (Ellipsoid Body)",
+      "role": "Orientación Espacial y Brújula de Rumbo 360°",
+      "region": "Complejo Central (Central Complex)",
+      "neurotransmitter": "dopamine",
+      "synapses_in": 139,
+      "synapses_out": 377
+    },
+    {
+      "root_id": "720575941493133772",
+      "class": "Neurona Brújula E-PG (Ellipsoid Body)",
+      "role": "Orientación Espacial y Brújula de Rumbo 360°",
+      "region": "Complejo Central (Central Complex)",
+      "neurotransmitter": "dopamine",
+      "synapses_in": 0,
+      "synapses_out": 0
+    },
+    {
+      "root_id": "720575941472733451",
+      "class": "Neurona Descendente Motora (DNa/DN)",
+      "role": "Control Motor Directo Cerebro -> Patas / Alas",
+      "region": "Cordón Nervioso Ventral (VNC)",
+      "neurotransmitter": "serotonin",
+      "synapses_in": 4610,
+      "synapses_out": 7626
+    },
+    {
+      "root_id": "720575941473201783",
+      "class": "Neurona Descendente Motora (DNa/DN)",
+      "role": "Control Motor Directo Cerebro -> Patas / Alas",
+      "region": "Cordón Nervioso Ventral (VNC)",
+      "neurotransmitter": "glutamate",
+      "synapses_in": 0,
+      "synapses_out": 0
+    },
+    {
+      "root_id": "720575941395392918",
+      "class": "Neurona Descendente Motora (DNa/DN)",
+      "role": "Control Motor Directo Cerebro -> Patas / Alas",
+      "region": "Cordón Nervioso Ventral (VNC)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 6571,
+      "synapses_out": 39198
+    },
+    {
+      "root_id": "720575941500851362",
+      "class": "Neurona Descendente Motora (DNa/DN)",
+      "role": "Control Motor Directo Cerebro -> Patas / Alas",
+      "region": "Cordón Nervioso Ventral (VNC)",
+      "neurotransmitter": "acetylcholine",
+      "synapses_in": 6992,
+      "synapses_out": 45465
+    },
+    {
+      "root_id": "720575941620273535",
+      "class": "Neurona Descendente Motora (DNa/DN)",
+      "role": "Control Motor Directo Cerebro -> Patas / Alas",
+      "region": "Cordón Nervioso Ventral (VNC)",
+      "neurotransmitter": "glutamate",
+      "synapses_in": 1874,
+      "synapses_out": 9661
+    }
+  ]
+}
