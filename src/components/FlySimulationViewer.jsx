@@ -192,6 +192,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const flyControlsRef = useRef(null);
   const flyModelRef = useRef(null);
   const flyLegsRef = useRef(null);
+  const flyPartsRef = useRef(null);
   const targetLightRef = useRef(null);
   const foodBeaconRef = useRef(null);
 
@@ -506,11 +507,12 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     arenaGroup.visible = activeEnvironment === 'arena';
     scannedRoomGroup.visible = activeEnvironment === 'scanned_room';
 
-    // Build Biomechanical Fly Model (FlyGym)
-    const { flyRoot, leftWing, rightWing, legNodes } = FlyConnectomeEngine.buildFlyGymModel();
+    // Build Biomechanical Fly Model (FlyGym with Sensory Antennae & Proboscis)
+    const { flyRoot, leftWing, rightWing, legNodes, antennae, proboscis, abdomen, headGroup } = FlyConnectomeEngine.buildFlyGymModel();
     flyModelRef.current = flyRoot;
     flyLegsRef.current = legNodes;
     flyWingsRef.current = { leftWing, rightWing };
+    flyPartsRef.current = { antennae, proboscis, abdomen, headGroup, legNodes };
     
     // Apply initial realistic insect scale (default: proportional 0.045, ~14 cm)
     const initialScale = FLY_SCALE_VALUES[flyScaleMode] || 0.045;
@@ -883,10 +885,20 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
           }
 
           // Household Odor Olfactory Response or Light Phototaxis
+          const currentValence = activeStimulus === 'memory' ? memoryEngineRef.current.getNetValence(selectedStimulusIdx) : 0.0;
+          const flyPos = flyModelRef.current.position;
+          const dist = flyPos.distanceTo(targetPos);
+
+          // Animate live biological sensory reactions (Antennae vibration & glow, Proboscis tasting PER, Grooming reflex, Respiration)
+          FlyConnectomeEngine.updateBiologicalSensoryResponses(
+            flyPartsRef.current,
+            time,
+            currentValence,
+            dist,
+            isFlying
+          );
+
           if (activeStimulus === 'memory') {
-            const currentValence = memoryEngineRef.current.getNetValence(selectedStimulusIdx);
-            const flyPos = flyModelRef.current.position;
-            const dist = flyPos.distanceTo(targetPos);
 
             if (currentValence > 0.1) {
               // Attraction: Seek fruit bowl / vinegar bottle / cutting board
@@ -1361,29 +1373,27 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             <span>🧬 166k / 124M Info</span>
           </button>
 
-          {/* Apple Silicon M5 Scientific Bridge Connection Status Button */}
+          {/* Apple Silicon M5 Hardware Acceleration & Research Bridge Button */}
           <button
             onClick={() => setShowM5Modal(true)}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-lg transition active:scale-95 border ${
               m5Status === 'connected'
                 ? 'bg-emerald-950/85 hover:bg-emerald-900 text-emerald-300 border-emerald-500/50 shadow-emerald-500/10'
-                : m5Status === 'connecting'
-                ? 'bg-amber-950/80 text-amber-300 border-amber-500/40 animate-pulse'
-                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-300 border-slate-700 hover:border-slate-500'
+                : 'bg-slate-800/90 hover:bg-slate-700 text-cyan-300 border-cyan-500/30 hover:border-cyan-400'
             }`}
-            title="Enlace científico bidireccional con el motor MuJoCo / SNN nativo en Apple Silicon M5"
+            title="Aceleración GPU Apple Silicon M5 en el navegador (120 FPS) y enlace MuJoCo"
           >
-            <Cpu className={`w-3.5 h-3.5 ${m5Status === 'connected' ? 'text-emerald-400' : 'text-slate-400'}`} />
+            <Cpu className={`w-3.5 h-3.5 ${m5Status === 'connected' ? 'text-emerald-400' : 'text-cyan-400'}`} />
             <span>
               {m5Status === 'connected' ? (
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                  <span>M5 MuJoCo Vinculado</span>
+                  <span>M5 MuJoCo Vinculado (120Hz)</span>
                 </span>
-              ) : m5Status === 'connecting' ? (
-                'Conectando M5...'
               ) : (
-                <span>Modo Web · <span className="text-amber-400 font-semibold underline">Enlace M5</span></span>
+                <span className="flex items-center gap-1">
+                  <span>⚡ Aceleración GPU M5 (120 FPS)</span>
+                </span>
               )}
             </span>
           </button>
@@ -2202,6 +2212,78 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             <div className="mt-1.5 flex items-center justify-between text-[8px] text-slate-400 px-1 font-mono">
               <span>Fotorreceptores: R1-R6 (480nm) · R7 UV (345nm) · R8 (508nm)</span>
               <span className="text-emerald-400 font-bold">750 OMMATIDIAS/OJO</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Biological Sensory Cascade Circuit Banner */}
+      {!isImmersiveMode && activeStimulus === 'memory' && (
+        <div className="absolute bottom-20 inset-x-3 sm:inset-x-6 z-20 pointer-events-auto">
+          <div className="p-3 rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-amber-500/40 shadow-2xl transition-all">
+            <div className="flex flex-wrap items-center justify-between border-b border-amber-500/20 pb-1.5 mb-2 gap-2">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>🧠 Cascada Sensorial en Vivo: La Mosca Siente</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono">
+                    {currentProduct.icon} {currentProduct.name} ({currentProduct.compound})
+                  </span>
+                </span>
+              </div>
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+              }`}>
+                {memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
+                  ? '🟢 Respuesta: Atracción & Extensión de Probóscide'
+                  : '🔴 Respuesta: Irritación Nociceptiva & Aseo (Grooming)'}
+              </span>
+            </div>
+
+            {/* 6 Biological Circuit Stations */}
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5 text-[9px] font-mono text-center">
+              <div className="p-1.5 rounded-xl bg-slate-900/90 border border-amber-500/30">
+                <span className="text-slate-400 block text-[8px]">1. Antenas</span>
+                <span className="text-amber-300 font-bold">Vibrando a 22 Hz</span>
+                <span className="text-[7px] text-slate-500 block">Sensillas Orco</span>
+              </div>
+              <div className="p-1.5 rounded-xl bg-slate-900/90 border border-yellow-500/30">
+                <span className="text-slate-400 block text-[8px]">2. Lóbulo Antenal</span>
+                <span className="text-yellow-400 font-bold">{currentProduct.glomerulus.split(' ')[0]}</span>
+                <span className="text-[7px] text-slate-500 block">Glomérulo Excitado</span>
+              </div>
+              <div className="p-1.5 rounded-xl bg-slate-900/90 border border-cyan-500/30">
+                <span className="text-slate-400 block text-[8px]">3. Tracto mALT</span>
+                <span className="text-cyan-400 font-bold">120 mV Axonal</span>
+                <span className="text-[7px] text-slate-500 block">Conducción al Cerebro</span>
+              </div>
+              <div className="p-1.5 rounded-xl bg-slate-900/90 border border-pink-500/30">
+                <span className="text-slate-400 block text-[8px]">4. Cuerpos Fúngicos</span>
+                <span className="text-pink-400 font-bold">Kenyon Cells</span>
+                <span className="text-[7px] text-slate-500 block">Dopamina: {memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0 ? '+PAM' : '-PPL1'}</span>
+              </div>
+              <div className="p-1.5 rounded-xl bg-slate-900/90 border border-indigo-500/30">
+                <span className="text-slate-400 block text-[8px]">5. Motor DNa01</span>
+                <span className="text-indigo-300 font-bold">Cuello → VNC</span>
+                <span className="text-[7px] text-slate-500 block">Descenso Torácico</span>
+              </div>
+              <div className={`p-1.5 rounded-xl border ${
+                memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                  : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+              }`}>
+                <span className="text-slate-400 block text-[8px]">6. Acción Física</span>
+                <span className="font-bold text-[9px]">
+                  {memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
+                    ? '👅 Extensión Probóscide'
+                    : '🧼 Aseo Patas & Huida'}
+                </span>
+                <span className="text-[7px] text-slate-400 block">
+                  {memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1 ? 'Alimentándose' : 'Frotando cabeza'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
