@@ -124,12 +124,113 @@ export class KitchenEnvironment {
     counterMesh.receiveShadow = true;
     kitchenRoot.add(counterMesh);
 
-    // 4. Backsplash Wall & Upper Floating Shelves
-    const wallGeo = new THREE.BoxGeometry(10, 4.5, 0.1);
-    const wallMesh = new THREE.Mesh(wallGeo, tileMat);
-    wallMesh.position.set(0, 2.25, -3.2);
-    wallMesh.receiveShadow = true;
-    kitchenRoot.add(wallMesh);
+    // 4. Complete Enclosed Architectural Room Walls & Ceiling
+    const wallPaintMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b, // Deep slate modern wall
+      roughness: 0.8,
+      metalness: 0.05
+    });
+
+    // Back wall (with backsplash)
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(10, 4.2, 0.1), tileMat);
+    backWall.position.set(0, 2.1, -3.5);
+    backWall.receiveShadow = true;
+    kitchenRoot.add(backWall);
+
+    // Left wall
+    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, 4.2, 8.0), wallPaintMat);
+    leftWall.position.set(-4.8, 2.1, 0);
+    leftWall.receiveShadow = true;
+    kitchenRoot.add(leftWall);
+
+    // Right wall
+    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, 4.2, 8.0), wallPaintMat);
+    rightWall.position.set(4.8, 2.1, 0);
+    rightWall.receiveShadow = true;
+    kitchenRoot.add(rightWall);
+
+    // Front boundary wall with warm architectural framing
+    const frontWall = new THREE.Mesh(new THREE.BoxGeometry(10, 4.2, 0.1), wallPaintMat);
+    frontWall.position.set(0, 2.1, 3.8);
+    frontWall.receiveShadow = true;
+    kitchenRoot.add(frontWall);
+
+    // Ceiling with recessed track lights
+    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+    const ceilingMesh = new THREE.Mesh(new THREE.PlaneGeometry(10, 8), ceilingMat);
+    ceilingMesh.rotation.x = Math.PI / 2;
+    ceilingMesh.position.y = 3.6;
+    kitchenRoot.add(ceilingMesh);
+
+    // 4.5 Simulated Glass Terrarium Enclosure (Clear Glass Walls around Island)
+    const glassTerrariumGroup = new THREE.Group();
+    glassTerrariumGroup.name = 'SimulatedGlassTerrarium';
+
+    const terrariumGlassMat = new THREE.MeshPhysicalMaterial({
+      color: 0x7dd3fc, // Subtle light cyan glass tint
+      transmission: 0.9,
+      opacity: 0.22,
+      transparent: true,
+      roughness: 0.08,
+      metalness: 0.1,
+      ior: 1.48,
+      side: THREE.DoubleSide
+    });
+
+    const frameMetalMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.4,
+      metalness: 0.85,
+      roughness: 0.2
+    });
+
+    // Glass side panels (Countertop height 1.02m to 2.45m)
+    const glassHeight = 1.42;
+    const glassCenterY = 1.02 + glassHeight / 2;
+
+    // Back glass panel
+    const backGlass = new THREE.Mesh(new THREE.PlaneGeometry(3.8, glassHeight), terrariumGlassMat);
+    backGlass.position.set(0, glassCenterY, -1.02);
+    glassTerrariumGroup.add(backGlass);
+
+    // Front glass panel
+    const frontGlass = new THREE.Mesh(new THREE.PlaneGeometry(3.8, glassHeight), terrariumGlassMat);
+    frontGlass.position.set(0, glassCenterY, 1.02);
+    glassTerrariumGroup.add(frontGlass);
+
+    // Left glass panel
+    const leftGlass = new THREE.Mesh(new THREE.PlaneGeometry(2.04, glassHeight), terrariumGlassMat);
+    leftGlass.rotation.y = Math.PI / 2;
+    leftGlass.position.set(-1.9, glassCenterY, 0);
+    glassTerrariumGroup.add(leftGlass);
+
+    // Right glass panel
+    const rightGlass = new THREE.Mesh(new THREE.PlaneGeometry(2.04, glassHeight), terrariumGlassMat);
+    rightGlass.rotation.y = -Math.PI / 2;
+    rightGlass.position.set(1.9, glassCenterY, 0);
+    glassTerrariumGroup.add(rightGlass);
+
+    // Top glass ceiling lid
+    const topGlass = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 2.04), terrariumGlassMat);
+    topGlass.rotation.x = Math.PI / 2;
+    topGlass.position.set(0, 1.02 + glassHeight, 0);
+    glassTerrariumGroup.add(topGlass);
+
+    // 4 Corner Structural Bevel Pillars with subtle glow
+    const postGeo = new THREE.CylinderGeometry(0.016, 0.016, glassHeight, 12);
+    [
+      [-1.9, -1.02],
+      [1.9, -1.02],
+      [-1.9, 1.02],
+      [1.9, 1.02]
+    ].forEach(([px, pz]) => {
+      const post = new THREE.Mesh(postGeo, frameMetalMat);
+      post.position.set(px, glassCenterY, pz);
+      glassTerrariumGroup.add(post);
+    });
+
+    kitchenRoot.add(glassTerrariumGroup);
 
     // Floating wooden shelf
     const shelfGeo = new THREE.BoxGeometry(5.0, 0.06, 0.35);
@@ -435,11 +536,22 @@ export class KitchenEnvironment {
       lampGroup,
       bulbMesh,
       kitchenPlumes,
+      glassTerrariumGroup,
       islandBounds: {
-        minX: -1.75,
-        maxX: 1.75,
-        minZ: -0.9,
-        maxZ: 0.9
+        minX: -1.8,
+        maxX: 1.8,
+        minZ: -0.95,
+        maxZ: 0.95,
+        minY: 1.02,
+        maxY: 2.45
+      },
+      roomBounds: {
+        minX: -4.5,
+        maxX: 4.5,
+        minZ: -3.2,
+        maxZ: 3.5,
+        minY: 0.0,
+        maxY: 3.5
       }
     };
   }
