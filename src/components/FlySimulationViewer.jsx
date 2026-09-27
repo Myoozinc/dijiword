@@ -89,7 +89,24 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const [viewMode, setViewMode] = useState('split'); // 'split' | 'connectome' | 'fly'
   const [isRunning, setIsRunning] = useState(true);
   const [firingRateHz, setFiringRateHz] = useState(4.2);
-  const [activeStimulus, setActiveStimulus] = useState('memory'); // 'memory' | 'light' | 'mechanosensory' | 'none'
+  // ── Multi-Sensory Modality Toggles (simultaneously active, like real Drosophila) ──
+  // Replaces the old single-exclusive activeStimulus string with a Set of active channels.
+  // The fly integrates ALL active channels simultaneously as weighted neural vector fields.
+  const [activeStimulusSet, setActiveStimulusSet] = useState(
+    new Set(['memory', 'light', 'mechanosensory']) // All 3 ON by default
+  );
+  // Keep a legacy-compat alias so old references don't break immediately
+  const activeStimulus = activeStimulusSet.size === 0 ? 'none'
+    : activeStimulusSet.has('memory') ? 'memory'
+    : activeStimulusSet.has('light') ? 'light'
+    : 'mechanosensory';
+  const toggleStimulusChannel = (ch) => {
+    setActiveStimulusSet(prev => {
+      const next = new Set(prev);
+      if (next.has(ch)) { next.delete(ch); } else { next.add(ch); }
+      return next;
+    });
+  };
   const [selectedNeuropil, setSelectedNeuropil] = useState(null);
   const [dopamineBoostActive, setDopamineBoostActive] = useState(false);
   const [showDataModal, setShowDataModal] = useState(false);
@@ -1276,28 +1293,44 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
           let sensingFood = false;
           let sensingRepellent = false;
 
-          // 1. Gather all active chemical stimuli (Preset Household Product + All User Placed Items)
+          // ─────────────────────────────────────────────────────────────────────
+          // MULTI-CHANNEL PARALLEL SENSORY INTEGRATION
+          // All active modalities contribute simultaneously as weighted vectors.
+          // This mirrors the actual Drosophila brain: the Antennal Lobe (olfaction),
+          // Medulla/Lobula (vision), Johnston's Organ (mechanosensory) and the Central
+          // Complex (navigation) ALL contribute to the descending motor commands (DN)
+          // at the same time — there is no "switch" in a real brain.
+          // ─────────────────────────────────────────────────────────────────────
+
+          // ── Channel 1: Olfactory Memory (Mushroom Body → MBON → DAL) ─────────
+          // Always gathers placed stimuli regardless of toggle; the preset household
+          // odor product is gated by the 'memory' toggle.
           const allChemicalSources = [];
-          if (activeStimulus === 'memory') {
+          if (activeStimulusSet.has('memory')) {
+            // Primary preset odor source (product selected by user)
+            const mbValence = memoryEngineRef.current.getNetValence(selectedStimulusIdx);
             allChemicalSources.push({
               position: targetPos,
-              valence: memoryEngineRef.current.getNetValence(selectedStimulusIdx),
+              valence: mbValence,
               name: currentProduct.name,
-              isPreset: true
+              isPreset: true,
+              channel: 'olfactory_mb'
             });
           }
+          // User-placed beacons are ALWAYS active (they were intentionally placed)
           if (placedStimuliRef.current) {
             placedStimuliRef.current.forEach(st => {
               allChemicalSources.push({
                 position: st.position,
                 valence: st.valence,
                 name: st.name,
-                isPreset: false
+                isPreset: false,
+                channel: 'olfactory_placed'
               });
             });
           }
 
-          // Calculate Olfactory Gradient Plume Vector Field
+          // Olfactory gradient plume vector field (1/r² concentration falloff)
           allChemicalSources.forEach(src => {
             const d = flyPos.distanceTo(src.position);
             if (src.valence > 0) {
@@ -1307,34 +1340,64 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
               closestRepellentDist = Math.min(closestRepellentDist, d);
               if (d < 3.0) sensingRepellent = true;
             }
-
-            if (d < 6.0) {
+            if (d < 6.5) {
               const concentration = Math.min(4.0, 1.2 / Math.max(0.12, d * d));
               const dirToSrc = new THREE.Vector3().subVectors(src.position, flyPos).normalize();
-              dirToSrc.y = 0; // horizontal navigation
-              if (src.valence > 0) {
-                // Attraction vector
-                steerDir.addScaledVector(dirToSrc, src.valence * concentration * 1.2);
-                netOlfactoryDrive += src.valence * concentration;
-              } else {
-                // Repulsion vector (steers away!)
-                steerDir.addScaledVector(dirToSrc, src.valence * concentration * 2.2);
-                netOlfactoryDrive += src.valence * concentration;
-              }
+              dirToSrc.y = 0;
+              const olfWeight = src.valence > 0 ? 1.2 : 2.2; // repellent weighs more
+              steerDir.addScaledVector(dirToSrc, src.valence * concentration * olfWeight);
+              netOlfactoryDrive += src.valence * concentration;
             }
           });
 
-          // 2. Interactive Laser Pointer Stimulus (Phototaxis)
+          // ── Channel 2: Phototaxis (Medulla LPLC2 → LC4 → DNp09) ─────────────
+          // Light draws the fly toward the brightest source in the scene.
+          // Weight scales with inverse-square distance like real photon density.
+          if (activeStimulusSet.has('light')) {
+            let lampTarget = targetLightRef.current?.position || new THREE.Vector3(0, 2.5, 0);
+            if (activeEnvironment === 'kitchen' && kitchenDataRef.current?.lampGroup) {
+              lampTarget = kitchenDataRef.current.lampGroup.position;
+            }
+            const dLamp = flyPos.distanceTo(lampTarget);
+            if (dLamp > 0.3) {
+              // Phototaxis strength attenuates with distance (inverse square)
+              const lightConc = Math.min(1.8, 0.9 / Math.max(0.5, dLamp));
+              const lightDir = new THREE.Vector3().subVectors(lampTarget, flyPos).normalize();
+              lightDir.y = 0;
+              // Modulated by hunger: hungry fly prioritises food smell over light
+              const phototaxisWeight = lightConc * (1.0 - (behaviorStateRef.current?.hungerDrive || 0) * 0.5);
+              steerDir.addScaledVector(lightDir, phototaxisWeight);
+            }
+          }
+
+          // ── Channel 3: Mechanosensory / Johnston's Organ (Wind Direction) ─────
+          // Simulates an airflow plume from a random but slowly-drifting wind direction.
+          // Johnston's Organ on the antennae detects this and biases the heading.
+          if (activeStimulusSet.has('mechanosensory')) {
+            // Wind direction drifts slowly over time (simulates ambient air currents)
+            const windAngle = time * 0.08 + (behaviorStateRef.current?.speedNoiseSeed || 0);
+            const windDirX = Math.sin(windAngle);
+            const windDirZ = Math.cos(windAngle);
+            // The fly is attracted to upwind direction when hungry (chemotaxis upwind)
+            // and repelled (moves downwind) when satiated or fearful
+            const windBias = activeStimulusSet.has('memory')
+              ? (behaviorStateRef.current?.hungerDrive || 0.5) * 0.5   // upwind when hungry
+              : 0.25;
+            steerDir.x += windDirX * windBias;
+            steerDir.z += windDirZ * windBias;
+          }
+
+          // ── Channel 4: Interactive Laser Pointer (Phototaxis override) ────────
           if (laserActive && laserTargetPosRef.current) {
             const dLaser = flyPos.distanceTo(laserTargetPosRef.current);
             if (dLaser > 0.12 && dLaser < 6.5) {
               const laserDir = new THREE.Vector3().subVectors(laserTargetPosRef.current, flyPos).normalize();
               laserDir.y = 0;
-              steerDir.addScaledVector(laserDir, 1.8);
+              steerDir.addScaledVector(laserDir, 2.2); // laser is strongest phototaxis stimulus
             }
           }
 
-          // 3. Startle Tap / Tactile Shockwave (Giant Fiber escape takeoff)
+          // ── Channel 5: Startle / Giant Fiber Circuit (Tactile Escape) ────────
           const nowMs = Date.now();
           let giantFiberFired = false;
           if (lastTapEventRef.current && (nowMs - lastTapEventRef.current.time < 1200)) {
@@ -1342,8 +1405,8 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             if (dTap < 2.5) {
               giantFiberFired = true;
               const escapeDir = new THREE.Vector3().subVectors(flyPos, lastTapEventRef.current.position).normalize();
-              escapeDir.y = 0.6; // Jump up and away
-              steerDir.addScaledVector(escapeDir, 4.5);
+              escapeDir.y = 0.6;
+              steerDir.addScaledVector(escapeDir, 4.5); // highest priority — escape trumps all
               if (!isFlying) {
                 setIsFlying(true);
                 flightStateRef.current.targetY = 2.05 + Math.random() * 0.3;
@@ -1351,17 +1414,19 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             }
           }
 
-          // 4. Phototaxis ambient light (if light mode is on)
-          if (activeStimulus === 'light') {
-            let lampTarget = targetLightRef.current?.position || new THREE.Vector3(0, 2.5, 0);
-            if (activeEnvironment === 'kitchen' && kitchenDataRef.current?.lampGroup) {
-              lampTarget = kitchenDataRef.current.lampGroup.position;
-            }
-            const dLamp = flyPos.distanceTo(lampTarget);
-            if (dLamp > 0.3) {
-              const lightDir = new THREE.Vector3().subVectors(lampTarget, flyPos).normalize();
-              steerDir.addScaledVector(lightDir, 1.2);
-            }
+          // ── Channel 6: Autonomous Background Sensory Noise ────────────────────
+          // Real flies always experience faint, noisy sensory input from ambient
+          // CO2, humidity gradients, thermal gradients, and visual flicker.
+          // This prevents completely blank steerDir even in "Libre" mode,
+          // ensuring the Lévy Walk is perturbed by faint biological signals.
+          {
+            const bsRef = behaviorStateRef.current;
+            const ambientNoise = 0.06;
+            // Slow-varying ambient olfactory gradient (represents CO2/humidity)
+            const ambX = Math.sin(time * 0.15 + (bsRef?.speedNoiseSeed || 0) * 1.3) * ambientNoise;
+            const ambZ = Math.cos(time * 0.11 + (bsRef?.speedNoiseSeed || 0) * 0.7) * ambientNoise;
+            steerDir.x += ambX;
+            steerDir.z += ambZ;
           }
 
           // 5. Update shockwaves animation (expanding & fading rings)
@@ -1718,7 +1783,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
     animId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animId);
-  }, [isRunning, firingRateHz, activeStimulus, selectedStimulusIdx, isFlying, showEyeProjector]);
+  }, [isRunning, firingRateHz, activeStimulusSet, selectedStimulusIdx, isFlying, showEyeProjector]);
 
   // Trigger virtual dopamine reward burst (as discussed in PDF)
   const triggerDopaminePulse = () => {
@@ -1794,7 +1859,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
       }, 2500);
     }
 
-    setActiveStimulus('memory');
+    setActiveStimulusSet(prev => { const n = new Set(prev); n.add('memory'); return n; });
 
     // Update food beacon visual feedback
     if (foodBeaconRef.current && foodBeaconRef.current.children[0]) {
@@ -1819,7 +1884,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
   const handleSelectOdorProduct = (productIdx) => {
     setSelectedStimulusIdx(productIdx);
-    setActiveStimulus('memory');
+    setActiveStimulusSet(prev => { const n = new Set(prev); n.add('memory'); return n; });
     const prod = HOUSEHOLD_ODOR_PRODUCTS[productIdx];
     if (!prod) return;
 
@@ -3156,45 +3221,45 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
           </div>
         </div>
 
-        {/* Sensory Stimuli Selectors */}
-        <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-400 font-medium">Estímulo Sensorial:</span>
+        {/* ── Multi-Sensory Channel Toggles (all can be ON simultaneously) ── */}
+        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+          <span className="text-xs text-slate-400 font-medium">Canales Activos:</span>
+          {[
+            { ch: 'memory',         label: 'Olfato/MB',      icon: '🧠', activeClass: 'bg-purple-500/30 text-purple-200 border border-purple-400/60', desc: 'Memoria olfativa del Cuerpo Fungiforme (MB→MBON→DAL)' },
+            { ch: 'light',          label: 'Fototaxis',      icon: '☀️', activeClass: 'bg-yellow-500/30 text-yellow-200 border border-yellow-400/60', desc: 'Respuesta a la luz (Medulla LC4 → DNp09)' },
+            { ch: 'mechanosensory', label: 'Viento/Antenas', icon: '💨', activeClass: 'bg-emerald-500/30 text-emerald-200 border border-emerald-400/60', desc: 'Órgano de Johnston — Detección de corrientes de aire' },
+          ].map(({ ch, label, icon, activeClass, desc }) => {
+            const isOn = activeStimulusSet.has(ch);
+            return (
+              <button
+                key={ch}
+                onClick={() => toggleStimulusChannel(ch)}
+                title={desc}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 transition-all ${
+                  isOn ? activeClass : 'bg-slate-900 text-slate-500 border border-slate-800 hover:text-slate-300'
+                }`}
+              >
+                <span>{icon}</span>
+                <span>{label}</span>
+                <span className={`ml-1 w-3 h-3 rounded-sm border flex items-center justify-center text-[8px] font-bold ${
+                  isOn ? 'bg-current border-current text-slate-900' : 'border-slate-600'
+                }`}>{isOn ? '✓' : ''}</span>
+              </button>
+            );
+          })}
           <button
-            onClick={() => setActiveStimulus('memory')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 transition ${
-              activeStimulus === 'memory' ? 'bg-purple-500/30 text-purple-300 border border-purple-400/60' : 'bg-slate-900 text-slate-400'
-            }`}
-            title="Navegación guiada por memoria asociativa y valencia aprendida (Cuerpo Fungiforme)"
-          >
-            <GraduationCap className="w-3.5 h-3.5 text-purple-300" />
-            <span>Memoria (MB)</span>
-          </button>
-          <button
-            onClick={() => setActiveStimulus('light')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 transition ${
-              activeStimulus === 'light' ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400/60' : 'bg-slate-900 text-slate-400'
-            }`}
-          >
-            <Sun className="w-3.5 h-3.5 text-yellow-300" />
-            <span>Luz (Fototaxis)</span>
-          </button>
-          <button
-            onClick={() => setActiveStimulus('mechanosensory')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 transition ${
-              activeStimulus === 'mechanosensory' ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400/60' : 'bg-slate-900 text-slate-400'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Viento / Antenas</span>
-          </button>
-          <button
-            onClick={() => setActiveStimulus('none')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-              activeStimulus === 'none' ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400/60' : 'bg-slate-900 text-slate-400'
+            onClick={() => setActiveStimulusSet(new Set())}
+            title="Desactivar todos los canales — solo ruido de fondo ambiental (Lévy Walk puro)"
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
+              activeStimulusSet.size === 0 ? 'bg-slate-600/40 text-slate-200 border-slate-400/60' : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'
             }`}
           >
-            Libre
+            🌿 Libre
           </button>
+          {/* Active channel count indicator */}
+          <span className="text-[10px] text-slate-500 font-mono">
+            {activeStimulusSet.size > 0 ? `${activeStimulusSet.size} canal${activeStimulusSet.size > 1 ? 'es' : ''} activo${activeStimulusSet.size > 1 ? 's' : ''}` : 'Lévy walk puro'}
+          </span>
         </div>
 
         {/* Neurotransmitters Status Bar */}
