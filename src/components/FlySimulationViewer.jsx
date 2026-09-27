@@ -253,6 +253,43 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const animFrameRef = useRef(null);
   const clockRef = useRef(new THREE.Clock());
 
+  // ── Naturalistic Locomotion State Machine (Saccade / Lévy Walk / Drive States) ──
+  // This replaces constant-lerp steering with biologically realistic saccadic locomotion:
+  // Real Drosophila hold a heading for 200–600 ms (fixation), then make near-instantaneous
+  // heading corrections (saccades), then fixate again — matching lab ethograms.
+  const behaviorStateRef = useRef({
+    // --- Saccade Engine ---
+    saccadePhase: 'fixating',       // 'fixating' | 'saccading' | 'paused'
+    fixationTimer: 0,               // seconds remaining in current fixation
+    fixationDuration: 0.35,         // will be randomised each fixation (0.15–0.65s)
+    saccadeTargetYaw: 0,            // yaw angle to jump to
+    saccadeProgress: 0,             // 0→1 over saccade duration
+    saccadeDuration: 0.045,         // near-instantaneous (~45ms, realistic for Drosophila)
+
+    // --- Lévy Walk (free exploration) ---
+    levyStepLength: 0,              // remaining distance in current Lévy step
+    levyHeading: 0,                 // current Lévy walk heading (rad)
+    levySpeed: 0.012,               // walking speed during Lévy step
+
+    // --- Internal Drive States ---
+    // Each drive ranges 0.0 (satisfied) → 1.0 (urgent)
+    hungerDrive: 0.55,              // rises with time, falls when near food
+    explorationDrive: 0.40,         // random exploration urge
+    fatigueDrive: 0.0,              // rises during sustained activity, causes rest bouts
+    aversiveDrive: 0.0,             // shock / repellent fear memory
+
+    // --- Grooming / Rest Pauses ---
+    groomingPause: false,
+    groomingTimer: 0,               // seconds remaining in grooming bout
+    nextGroomIn: 8 + Math.random() * 12, // seconds until next grooming bout
+
+    // --- Activity accumulator (for fatigue) ---
+    activeTime: 0,                  // seconds of continuous movement
+
+    // --- Walking speed noise ---
+    speedNoiseSeed: Math.random() * 100,
+  });
+
   // 1. Initialize Connectome 3D Scene
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1378,27 +1415,184 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             ch6_vnc: isFlying ? 50.0 : firingRateHz
           };
 
-          // 9. Execute Combined Steering Movement
-          if (steerDir.lengthSq() > 0.001) {
-            const targetYaw = Math.atan2(steerDir.x, steerDir.z);
-            flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.065);
-            
-            // Speed modulation based on stimulus urgency
-            let moveSpeed = (isFlying ? 0.038 : 0.016) * (firingRateHz / 4.2);
-            if (giantFiberFired || sensingRepellent) moveSpeed *= 1.45; // Escape speed boost
-            
-            // Decelerate if close to food and landed to feed
-            if (!isFlying && closestFoodDist < 0.45) {
-              moveSpeed *= 0.15;
+          // 9. ── NATURALISTIC SACCADIC LOCOMOTION ENGINE ──────────────────────────────
+          // Based on Drosophila free-walking ethograms (Strauss & Heisenberg 1993,
+          // Robie et al 2017, Berman et al 2014): fly holds a heading for a random
+          // fixation period (200–650 ms), then fires a near-instantaneous saccade
+          // (~40-50 ms) to a new heading angle. This produces the stop-and-turn
+          // trajectory seen in real fly tracking data, NOT smooth continuous rotation.
+          {
+            const bs = behaviorStateRef.current;
+            const firingScale = firingRateHz / 4.2;
+            const hasStimulus = steerDir.lengthSq() > 0.001;
+
+            // ── A. Update Internal Drive States ──────────────────────────────────────
+            // Hunger rises over time, falls when the fly is close to food
+            bs.hungerDrive = Math.min(1.0, bs.hungerDrive + delta * 0.018);
+            if (!isFlying && closestFoodDist < 0.55) {
+              bs.hungerDrive = Math.max(0.0, bs.hungerDrive - delta * 0.45);
+            }
+            // Exploration drive oscillates with a slow internal rhythm (~30s period)
+            bs.explorationDrive = 0.35 + Math.sin(time * 0.21 + bs.speedNoiseSeed) * 0.30;
+            // Fatigue rises during sustained walking, resets during rest
+            if (!bs.groomingPause && !isFlying) {
+              bs.activeTime += delta;
+              bs.fatigueDrive = Math.min(0.85, bs.activeTime * 0.012);
+            } else if (bs.groomingPause) {
+              bs.activeTime = Math.max(0, bs.activeTime - delta * 2.5);
+              bs.fatigueDrive = Math.max(0, bs.fatigueDrive - delta * 0.08);
+            }
+            // Aversive drive decays exponentially (fear memory fades)
+            if (sensingRepellent || giantFiberFired) {
+              bs.aversiveDrive = Math.min(1.0, bs.aversiveDrive + 0.35);
+            } else {
+              bs.aversiveDrive = Math.max(0.0, bs.aversiveDrive - delta * 0.12);
             }
 
-            flyModelRef.current.translateZ(moveSpeed);
-            setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
-          } else {
-            // Neutral exploratory wandering
-            flyModelRef.current.rotation.y += Math.sin(time * 0.5) * 0.008;
-            if (!isFlying) flyModelRef.current.translateZ(0.012 * (firingRateHz / 4.2));
-            setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            // ── B. Grooming / Rest Pause Bouts ───────────────────────────────────────
+            // Fly pauses to clean antennae/wings every ~10-25s (lab-measured interval)
+            if (!bs.groomingPause) {
+              bs.nextGroomIn -= delta;
+              // Fatigue also makes grooming more likely
+              if (bs.nextGroomIn <= 0 && !hasStimulus && !isFlying && bs.fatigueDrive > 0.3) {
+                bs.groomingPause = true;
+                bs.groomingTimer = 0.8 + Math.random() * 1.4; // 0.8–2.2 s pause
+                bs.nextGroomIn = 10 + Math.random() * 18;
+              }
+            }
+            if (bs.groomingPause) {
+              bs.groomingTimer -= delta;
+              if (bs.groomingTimer <= 0 || hasStimulus) {
+                bs.groomingPause = false;
+              }
+              // During grooming: no translation, tiny body micro-oscillation only
+              flyModelRef.current.rotation.z = Math.sin(time * 12) * 0.018;
+              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            } else if (isFlying) {
+              // ── C. FLIGHT MODE — smooth directional control (aerodynamics require it) ──
+              if (hasStimulus) {
+                const targetYaw = Math.atan2(steerDir.x, steerDir.z);
+                // In flight: use gentler saccade-like turns (~80ms bank-and-roll)
+                flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, targetYaw, 0.055);
+              }
+              let flightSpeed = 0.038 * firingScale;
+              if (giantFiberFired) flightSpeed *= 1.6;
+              flyModelRef.current.translateZ(flightSpeed);
+              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            } else {
+              // ── D. WALKING MODE — Saccadic Fixation + Lévy Walk ────────────────────
+              if (hasStimulus) {
+                // STIMULUS-DRIVEN: saccade toward gradient direction
+                const desiredYaw = Math.atan2(steerDir.x, steerDir.z);
+
+                if (bs.saccadePhase === 'fixating') {
+                  bs.fixationTimer -= delta;
+                  if (bs.fixationTimer <= 0) {
+                    // Compute angular error; only saccade if error > ~15° (threshold)
+                    let yawErr = desiredYaw - flyModelRef.current.rotation.y;
+                    // Normalise to [-π, π]
+                    while (yawErr > Math.PI) yawErr -= 2 * Math.PI;
+                    while (yawErr < -Math.PI) yawErr += 2 * Math.PI;
+
+                    if (Math.abs(yawErr) > 0.26) { // >~15°: fire saccade
+                      // Add small random scatter to avoid perfectly mechanical turns
+                      const scatter = (Math.random() - 0.5) * 0.18;
+                      bs.saccadeTargetYaw = desiredYaw + scatter;
+                      bs.saccadeProgress = 0;
+                      bs.saccadePhase = 'saccading';
+                      bs.saccadeDuration = 0.035 + Math.random() * 0.02; // 35–55 ms
+                    } else {
+                      // Small error: just reset fixation timer without saccading
+                      bs.fixationDuration = 0.15 + Math.random() * 0.5;
+                      bs.fixationTimer = bs.fixationDuration;
+                    }
+                  }
+                }
+
+                if (bs.saccadePhase === 'saccading') {
+                  bs.saccadeProgress += delta / bs.saccadeDuration;
+                  if (bs.saccadeProgress >= 1.0) {
+                    bs.saccadeProgress = 1.0;
+                    flyModelRef.current.rotation.y = bs.saccadeTargetYaw;
+                    bs.saccadePhase = 'fixating';
+                    bs.fixationDuration = 0.20 + Math.random() * 0.45 * (1.0 - bs.hungerDrive);
+                    bs.fixationTimer = bs.fixationDuration;
+                  } else {
+                    // Smooth-step easing for the saccade itself (sigmoidal, fast)
+                    const t = bs.saccadeProgress;
+                    const smooth = t * t * (3 - 2 * t);
+                    const prevYaw = bs.saccadeTargetYaw - (bs.saccadeTargetYaw - flyModelRef.current.rotation.y) * (1 - smooth);
+                    flyModelRef.current.rotation.y = THREE.MathUtils.lerp(flyModelRef.current.rotation.y, bs.saccadeTargetYaw, smooth * 0.9);
+                  }
+                }
+
+                // Speed: base walking + hunger urgency + stochastic noise
+                // Noise term: fractional sinusoidal walk on the seed (smooth but unpredictable)
+                const speedNoise = 0.7 + 0.3 * Math.sin(time * 3.7 + bs.speedNoiseSeed) * Math.sin(time * 2.1 + bs.speedNoiseSeed * 0.7);
+                let walkSpeed = 0.0145 * firingScale * speedNoise * (1.0 + bs.hungerDrive * 0.4);
+                if (giantFiberFired || sensingRepellent) walkSpeed *= 1.55; // escape sprint
+                // Slow to a crawl when very close to food (feeding approach)
+                if (closestFoodDist < 0.45) walkSpeed *= 0.12;
+                // Fatigue reduces speed
+                walkSpeed *= (1.0 - bs.fatigueDrive * 0.35);
+                flyModelRef.current.translateZ(walkSpeed);
+                setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+
+              } else {
+                // FREE EXPLORATION: Lévy Walk (power-law step lengths, naturalistic turns)
+                // The Lévy exponent μ≈2 is empirically measured in many insects.
+                if (bs.levyStepLength <= 0) {
+                  // Sample a new Lévy step: length ~ Pareto(x_min, μ=2)
+                  const u = Math.max(0.001, Math.random());
+                  const levyExponent = 2.0;
+                  bs.levyStepLength = 0.08 * Math.pow(u, -1.0 / (levyExponent - 1)); // x_min=0.08
+                  bs.levyStepLength = Math.min(bs.levyStepLength, 0.85); // clamp to arena size
+
+                  // Sample a new heading: biased toward unexplored directions
+                  // (simple approximation: prefer turns of 60–150° to avoid straight runs)
+                  const turnBias = Math.PI * 0.5 + Math.random() * Math.PI * 0.7;
+                  const turnSign = Math.random() < 0.5 ? 1 : -1;
+                  bs.levyHeading = flyModelRef.current.rotation.y + turnSign * turnBias;
+
+                  // Hunger biases toward shorter steps (more turning, staying near food area)
+                  // Exploration drive biases toward longer steps
+                  const driveScale = 0.5 + bs.explorationDrive * 0.8 - bs.hungerDrive * 0.3;
+                  bs.levyStepLength *= Math.max(0.15, driveScale);
+                  bs.levySpeed = (0.009 + Math.random() * 0.006) * firingScale;
+
+                  // Saccade to new heading
+                  bs.saccadeTargetYaw = bs.levyHeading;
+                  bs.saccadeProgress = 0;
+                  bs.saccadeDuration = 0.04 + Math.random() * 0.025;
+                  bs.saccadePhase = 'saccading';
+                }
+
+                if (bs.saccadePhase === 'saccading') {
+                  bs.saccadeProgress += delta / bs.saccadeDuration;
+                  if (bs.saccadeProgress >= 1.0) {
+                    bs.saccadeProgress = 1.0;
+                    flyModelRef.current.rotation.y = bs.saccadeTargetYaw;
+                    bs.saccadePhase = 'fixating';
+                    bs.fixationTimer = bs.fixationDuration;
+                  } else {
+                    flyModelRef.current.rotation.y = THREE.MathUtils.lerp(
+                      flyModelRef.current.rotation.y, bs.saccadeTargetYaw,
+                      bs.saccadeProgress * 0.92
+                    );
+                  }
+                }
+
+                // Advance Lévy step
+                const stepDist = bs.levySpeed * delta;
+                bs.levyStepLength -= stepDist;
+                flyModelRef.current.translateZ(bs.levySpeed);
+
+                // Occasional spontaneous micro-turn during fixation (vibration noise)
+                flyModelRef.current.rotation.y += (Math.random() - 0.5) * 0.004;
+
+                setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+              }
+            }
           }
 
           // -----------------------------------------------------------------
@@ -2432,6 +2626,44 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                     <div className="flex justify-between">
                       <span>Olor Activo:</span>
                       <span className="text-yellow-300 truncate max-w-[100px]">{currentProduct.icon} {currentProduct.name.split(':')[0]}</span>
+                    </div>
+
+                    {/* ── Drive State Bars (Internal Motivational State) ── */}
+                    <div className="mt-1.5 pt-1.5 border-t border-slate-800">
+                      <div className="text-[9px] text-slate-500 font-semibold mb-1 uppercase tracking-wider">Estado Interno</div>
+                      {[
+                        { label: '🍯 Hambre', key: 'hungerDrive', color: 'bg-amber-400' },
+                        { label: '🧭 Exploración', key: 'explorationDrive', color: 'bg-cyan-400' },
+                        { label: '😴 Fatiga', key: 'fatigueDrive', color: 'bg-indigo-400' },
+                        { label: '⚡ Aversión', key: 'aversiveDrive', color: 'bg-red-400' },
+                      ].map(d => {
+                        const val = behaviorStateRef.current?.[d.key] ?? 0;
+                        return (
+                          <div key={d.key} className="flex items-center gap-1 mb-0.5">
+                            <span className="w-20 shrink-0">{d.label}</span>
+                            <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${d.color}`}
+                                style={{ width: `${Math.round(val * 100)}%` }}
+                              />
+                            </div>
+                            <span className="w-7 text-right text-slate-500">{Math.round(val * 100)}%</span>
+                          </div>
+                        );
+                      })}
+                      <div className="flex justify-between mt-1">
+                        <span>Fase:</span>
+                        <span className={`font-bold ${
+                          behaviorStateRef.current?.groomingPause ? 'text-pink-400'
+                          : behaviorStateRef.current?.saccadePhase === 'saccading' ? 'text-yellow-300'
+                          : 'text-emerald-400'
+                        }`}>
+                          {behaviorStateRef.current?.groomingPause ? '✂️ Acicalando'
+                           : behaviorStateRef.current?.saccadePhase === 'saccading' ? '↩️ Sacada'
+                           : behaviorStateRef.current?.levyStepLength > 0 ? '🚶 Lévy Walk'
+                           : '📌 Fijación'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
