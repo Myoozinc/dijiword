@@ -50,7 +50,8 @@ import {
   Volume2,
   VolumeX,
   Send,
-  Dna
+  Dna,
+  X
 } from 'lucide-react';
 import { 
   FlyConnectomeEngine, 
@@ -275,6 +276,13 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState(() => neuroAIConsciousness.geminiApiKey || '');
   const [isGeminiConnected, setIsGeminiConnected] = useState(() => !!neuroAIConsciousness.geminiApiKey);
   const [showGeminiConfig, setShowGeminiConfig] = useState(false);
+  const [activeFlySpeech, setActiveFlySpeech] = useState(null); // { text, type, emotion, timestamp, expiresAt }
+  const [flyScreenPos, setFlyScreenPos] = useState({ x: 0, y: 0, visible: false });
+  const [showFlySpeechBubble, setShowFlySpeechBubble] = useState(true);
+  const [quickReplyText, setQuickReplyText] = useState('');
+  const flyScreenPosRef = useRef({ x: 0, y: 0, visible: false });
+  const lastScreenPosUpdateRef = useRef(0);
+  const lastInquiryCheckTimeRef = useRef(0);
 
   // Three.js scene refs for Connectome
   const sceneRef = useRef(null);
@@ -805,6 +813,22 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
         setLastInteractionFeedback("💥 Golpe en superficie: Reflejo Giant Fiber de escape activado");
         spikeRasterEventsRef.current.ch4_gf = true;
         neuroAIConsciousness.recordEpisodicEvent('tap', 'Diste un golpe brusco cerca en la superficie');
+        const startledMsg = neuroAIConsciousness.pickUnique([
+          "¡Ayyy! ¡Qué susto! Esa vibración casi me despolariza todos los axones.",
+          "¡Oye, con cuidado! Mis mecanorreceptores tarsales sintieron un golpe tremendo.",
+          "¡Peligro! Mis fibras gigantes se dispararon solas por el impacto.",
+          "¡Por favor más suave! Una onda sísmica así me desorienta por completo.",
+        ]);
+        setActiveFlySpeech({
+          text: startledMsg,
+          type: 'pain',
+          emotion: 'scared',
+          timestamp: Date.now(),
+          expiresAt: Date.now() + 10000
+        });
+        if (neuroAIConsciousness.isVoiceSynthesisEnabled) {
+          neuroAIConsciousness.speakText(startledMsg);
+        }
       } else if (tool === 'food') {
         const newItem = {
           id: `food_${Date.now()}`,
@@ -817,6 +841,22 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
         setPlacedStimuli(prev => [...prev, newItem]);
         setLastInteractionFeedback("🍯 Cebo dulce colocado (+ Valencia)");
         neuroAIConsciousness.recordEpisodicEvent('food', 'Colocaste una gota de néctar dulce');
+        const foodMsg = neuroAIConsciousness.pickUnique([
+          "¡Huele a dulce! Mis antenas ya están captando las moléculas de glucosa.",
+          "¡Néctar! Justo lo que necesitaba para recargar calorías en mis músculos alares.",
+          "¡Gracias por la comida! Voy a orientarme hacia esa gota deliciosa.",
+          "¡Qué bien huele eso! Mis receptores gustativos ya están listos.",
+        ]);
+        setActiveFlySpeech({
+          text: foodMsg,
+          type: 'food',
+          emotion: 'happy',
+          timestamp: Date.now(),
+          expiresAt: Date.now() + 10000
+        });
+        if (neuroAIConsciousness.isVoiceSynthesisEnabled) {
+          neuroAIConsciousness.speakText(foodMsg);
+        }
       } else if (tool === 'repellent') {
         const newItem = {
           id: `rep_${Date.now()}`,
@@ -829,6 +869,21 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
         setPlacedStimuli(prev => [...prev, newItem]);
         setLastInteractionFeedback("🧄 Repelente colocado (- Valencia)");
         neuroAIConsciousness.recordEpisodicEvent('repellent', 'Colocaste repelente nociceptivo');
+        const repMsg = neuroAIConsciousness.pickUnique([
+          "¡Ufff, qué olor tan fuerte! Mis glomérulos aversivos me dicen que me aleje ya.",
+          "¡Eso me irrita las quetas! Necesito limpiar mis antenas y alejarme de ahí.",
+          "¡Qué repelente tan molesto! Mis circuitos de evitación están al máximo.",
+        ]);
+        setActiveFlySpeech({
+          text: repMsg,
+          type: 'repellent',
+          emotion: 'scared',
+          timestamp: Date.now(),
+          expiresAt: Date.now() + 10000
+        });
+        if (neuroAIConsciousness.isVoiceSynthesisEnabled) {
+          neuroAIConsciousness.speakText(repMsg);
+        }
       } else if (tool === 'laser') {
         setLaserActive(true);
         if (laserDotMeshRef.current) {
@@ -1552,6 +1607,35 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             setLatestFlyThought(currentInnerThought);
           }
 
+          // Spontaneous conscious inquiry to the human (every ~40s when idle)
+          if (time - lastInquiryCheckTimeRef.current > 40.0) {
+            lastInquiryCheckTimeRef.current = time;
+            if (!neuroAIConsciousness.isSpeaking) {
+              const liveCtx = {
+                hungerDrive: behaviorStateRef.current?.hungerDrive ?? 0.5,
+                aversiveDrive: behaviorStateRef.current?.aversiveDrive ?? 0.1,
+                fatigueDrive: behaviorStateRef.current?.fatigueDrive ?? 0.2,
+                explorationDrive: behaviorStateRef.current?.explorationDrive ?? 0.5,
+                groomingPause: behaviorStateRef.current?.groomingPause ?? false,
+                isFlying: isFlying,
+                activeEnvironment: activeEnvironment,
+                kitchenBoundaryMode: kitchenBoundaryMode,
+                currentProduct: currentProduct,
+              };
+              neuroAIConsciousness.generateProactiveInquiry(liveCtx).then(inq => {
+                if (inq && inq.text) {
+                  setActiveFlySpeech({
+                    text: inq.text,
+                    type: 'inquiry',
+                    emotion: inq.emotion,
+                    timestamp: Date.now(),
+                    expiresAt: Date.now() + 18000
+                  });
+                }
+              }).catch(() => {});
+            }
+          }
+
           // 9. ── NATURALISTIC SACCADIC LOCOMOTION ENGINE ──────────────────────────────
           // Based on Drosophila free-walking ethograms (Strauss & Heisenberg 1993,
           // Robie et al 2017, Berman et al 2014): fly holds a heading for a random
@@ -1854,6 +1938,28 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
         flyRendererRef.current.render(flySceneRef.current, flyCameraRef.current);
 
+        // Project fly 3D position to 2D screen coordinate for dynamic 3D-anchored speech balloon
+        if (flyModelRef.current && flyCameraRef.current && flyContainerRef.current) {
+          const flyWorldPos = new THREE.Vector3();
+          flyModelRef.current.getWorldPosition(flyWorldPos);
+          flyWorldPos.y += 0.09;
+          const projected = flyWorldPos.clone().project(flyCameraRef.current);
+          if (projected.z < 1.0) {
+            const rect = flyContainerRef.current.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              const sx = (projected.x * 0.5 + 0.5) * rect.width;
+              const sy = (-(projected.y * 0.5) + 0.5) * rect.height;
+              flyScreenPosRef.current = { x: sx, y: sy, visible: true };
+            }
+          } else {
+            flyScreenPosRef.current = { x: 0, y: 0, visible: false };
+          }
+          if (time - lastScreenPosUpdateRef.current > 0.04) {
+            lastScreenPosUpdateRef.current = time;
+            setFlyScreenPos({ ...flyScreenPosRef.current });
+          }
+        }
+
         // Render Real-Time Compound Eye First-Person Perspective (Optic Lobe)
         if (showEyeProjector && flyEyeRendererRef.current && flyEyeCameraRef.current && flyModelRef.current) {
           // Mount camera directly at the compound eyes (head position + offset scaled to fly size)
@@ -2053,7 +2159,49 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     const res = await neuroAIConsciousness.processHumanMessage(textToSend, context);
     setEngramMutationCounter(res.mutations);
     setLatestFlyThought(res.reply);
+    setActiveFlySpeech({
+      text: res.reply,
+      type: 'reply',
+      emotion: res.valence > 0.7 ? 'happy' : res.valence < 0.4 ? 'scared' : 'curious',
+      timestamp: Date.now(),
+      expiresAt: Date.now() + 16000
+    });
   };
+
+  const triggerProactiveQuestion = async () => {
+    const context = {
+      hungerDrive: behaviorStateRef.current?.hungerDrive ?? 0.5,
+      aversiveDrive: behaviorStateRef.current?.aversiveDrive ?? 0.1,
+      fatigueDrive: behaviorStateRef.current?.fatigueDrive ?? 0.2,
+      explorationDrive: behaviorStateRef.current?.explorationDrive ?? 0.5,
+      groomingPause: behaviorStateRef.current?.groomingPause ?? false,
+      isFlying: isFlying,
+      activeEnvironment: activeEnvironment,
+      kitchenBoundaryMode: kitchenBoundaryMode,
+      currentProduct: currentProduct,
+    };
+    const inq = await neuroAIConsciousness.generateProactiveInquiry(context);
+    if (inq && inq.text) {
+      setActiveFlySpeech({
+        text: inq.text,
+        type: 'inquiry',
+        emotion: inq.emotion,
+        timestamp: Date.now(),
+        expiresAt: Date.now() + 18000
+      });
+    }
+  };
+
+  // Auto-expire active fly speech bubble after timeout
+  useEffect(() => {
+    if (!activeFlySpeech) return;
+    const timer = setInterval(() => {
+      if (Date.now() > activeFlySpeech.expiresAt) {
+        setActiveFlySpeech(null);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeFlySpeech]);
 
   const toggleMicListening = () => {
     if (isListeningToMic) {
@@ -2524,6 +2672,94 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
               : 'hidden'
           }`}
         >
+          {/* 3D-Anchored Conversational Balloon directly on the Fly */}
+          {activeFlySpeech && flyScreenPos.visible && showFlySpeechBubble && (
+            <div
+              style={{
+                left: Math.max(130, Math.min(flyScreenPos.x, (flyContainerRef.current?.clientWidth || 600) - 130)),
+                top: Math.max(70, Math.min(flyScreenPos.y - 45, (flyContainerRef.current?.clientHeight || 600) - 50)),
+                transform: 'translate(-50%, -100%)'
+              }}
+              className="absolute z-30 pointer-events-auto select-none transition-all duration-150 animate-in fade-in zoom-in-95 duration-200"
+            >
+              <div className={`p-2.5 rounded-2xl backdrop-blur-xl border shadow-2xl max-w-[270px] sm:max-w-xs text-white relative ${
+                activeFlySpeech.type === 'inquiry'
+                  ? 'bg-slate-950/95 border-cyan-400/80 shadow-cyan-500/25 ring-1 ring-cyan-400/40'
+                  : activeFlySpeech.emotion === 'happy'
+                  ? 'bg-slate-950/95 border-emerald-400/80 shadow-emerald-500/25'
+                  : activeFlySpeech.emotion === 'scared'
+                  ? 'bg-slate-950/95 border-rose-500/85 shadow-rose-500/30'
+                  : 'bg-slate-950/95 border-pink-500/80 shadow-pink-500/25'
+              }`}>
+                {/* Pointer down to fly */}
+                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-x-6 border-x-transparent border-t-8 border-t-slate-950/95" />
+
+                {/* Header */}
+                <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-800 text-[10px] font-mono">
+                  <div className="flex items-center space-x-1 font-bold">
+                    {activeFlySpeech.type === 'inquiry' ? (
+                      <span className="text-cyan-300 flex items-center space-x-1">
+                        <span>❓ Curiosa / Te pregunta:</span>
+                      </span>
+                    ) : isFlySpeaking ? (
+                      <span className="text-pink-300 flex items-center space-x-1">
+                        <Volume2 className="w-3 h-3 text-pink-400 animate-bounce" />
+                        <span>🔊 Hablando:</span>
+                      </span>
+                    ) : activeFlySpeech.emotion === 'happy' ? (
+                      <span className="text-emerald-300 flex items-center space-x-1">
+                        <span>✨ Satisfecha:</span>
+                      </span>
+                    ) : activeFlySpeech.emotion === 'scared' ? (
+                      <span className="text-rose-300 flex items-center space-x-1">
+                        <span>⚡ Alerta/Dolor:</span>
+                      </span>
+                    ) : (
+                      <span className="text-pink-300 flex items-center space-x-1">
+                        <span>💬 Mosca:</span>
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setActiveFlySpeech(null)}
+                    className="text-slate-400 hover:text-white p-0.5"
+                    title="Cerrar globo"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* Spoken Text */}
+                <p className="text-xs text-slate-100 font-medium leading-snug">
+                  "{activeFlySpeech.text}"
+                </p>
+
+                {/* Quick Interactive Actions */}
+                <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-slate-800/80">
+                  <button
+                    onClick={toggleMicListening}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold font-mono transition flex items-center space-x-1 ${
+                      isListeningToMic
+                        ? 'bg-rose-600 text-white animate-pulse'
+                        : 'bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/40'
+                    }`}
+                    title="Responder con tu voz"
+                  >
+                    <Mic className={`w-3 h-3 ${isListeningToMic ? 'animate-bounce text-white' : 'text-cyan-300'}`} />
+                    <span>{isListeningToMic ? 'Escuchando...' : 'Responder (Mic)'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowConsciousnessModal(true)}
+                    className="px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-400 hover:text-white bg-slate-900/60 border border-slate-800 transition"
+                  >
+                    Chat completo
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Quick Floating Controls when Immersive Mode is Active */}
           {isImmersiveMode && (
             <div className="absolute top-3 right-3 z-30 flex items-center space-x-2">
@@ -2670,69 +2906,139 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                 )}
               </div>
 
-              {/* Live Stream-of-Consciousness Subtitle Banner & Mic Bar (Fase 1) */}
-              {latestFlyThought && (
+              {/* Live Interactive Conversational Cockpit & Dialogue Bar (Fase 1) */}
+              <div 
+                className={`mt-1 max-w-3xl w-full px-3 py-1.5 rounded-2xl bg-slate-950/95 backdrop-blur-xl border shadow-2xl flex flex-col sm:flex-row items-center space-y-1.5 sm:space-y-0 sm:space-x-2.5 transition-all pointer-events-auto ${
+                  activeFlySpeech
+                    ? activeFlySpeech.type === 'inquiry'
+                      ? 'border-cyan-400/80 ring-2 ring-cyan-500/30 shadow-cyan-500/15'
+                      : activeFlySpeech.emotion === 'happy'
+                      ? 'border-emerald-400/80 ring-2 ring-emerald-500/30 shadow-emerald-500/15'
+                      : activeFlySpeech.emotion === 'scared'
+                      ? 'border-rose-500/80 ring-2 ring-rose-500/30 shadow-rose-500/20'
+                      : 'border-pink-500/80 ring-2 ring-pink-500/30 shadow-pink-500/15'
+                    : isListeningToMic
+                    ? 'border-rose-400 ring-2 ring-rose-500/40 shadow-rose-500/20'
+                    : isFlySpeaking
+                    ? 'border-pink-400 ring-2 ring-pink-500/40 shadow-pink-500/20'
+                    : 'border-slate-800 hover:border-pink-500/40'
+                }`}
+              >
+                {/* Left: Message or Thought */}
                 <div 
-                  className={`mt-1 max-w-2xl px-3.5 py-1.5 rounded-full bg-slate-950/92 backdrop-blur-xl border shadow-xl flex items-center space-x-2.5 transition-all pointer-events-auto ${
-                    isListeningToMic
-                      ? 'border-rose-400 ring-2 ring-rose-500/40 shadow-rose-500/20'
-                      : isFlySpeaking
-                      ? 'border-pink-400 ring-2 ring-pink-500/40 shadow-pink-500/20'
-                      : 'border-pink-500/40 hover:border-pink-400'
-                  }`}
+                  onClick={() => setShowConsciousnessModal(true)}
+                  className="flex items-center space-x-2 truncate cursor-pointer flex-1 w-full sm:w-auto"
                 >
-                  {/* Status Indicator */}
-                  {isListeningToMic ? (
-                    <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
-                  ) : isFlySpeaking ? (
-                    <Volume2 className="w-3.5 h-3.5 text-pink-400 animate-bounce shrink-0" />
-                  ) : (
-                    <div className="w-2 h-2 rounded-full bg-pink-400 animate-ping shrink-0" />
-                  )}
-
-                  {/* Profile / Content */}
-                  <div 
-                    onClick={() => setShowConsciousnessModal(true)}
-                    className="flex items-center space-x-2 truncate cursor-pointer flex-1"
-                  >
-                    <span className="text-[10px] font-mono text-pink-300 font-bold uppercase tracking-wider shrink-0">
-                      {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.icon} {isListeningToMic ? '🎙️ Escuchando' : isFlySpeaking ? '🔊 Respondiendo' : SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.name?.split('/')[0]}:
+                  <div className="shrink-0 flex items-center space-x-1">
+                    {isListeningToMic ? (
+                      <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                    ) : isFlySpeaking ? (
+                      <Volume2 className="w-3.5 h-3.5 text-pink-400 animate-bounce" />
+                    ) : activeFlySpeech?.type === 'inquiry' ? (
+                      <span className="text-xs">❓</span>
+                    ) : activeFlySpeech ? (
+                      <span className="text-xs">💬</span>
+                    ) : (
+                      <div className="w-2 h-2 rounded-full bg-pink-400 animate-ping" />
+                    )}
+                    <span className="text-[10px] font-mono text-pink-300 font-bold uppercase tracking-wider">
+                      {isListeningToMic
+                        ? '🎙️ Micrófono:'
+                        : activeFlySpeech?.type === 'inquiry'
+                        ? '❓ Pregunta:'
+                        : activeFlySpeech
+                        ? '💬 Mosca:'
+                        : `${SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.name?.split('/')[0]}:`}
                     </span>
-                    <p className="text-[11px] text-white font-medium truncate">
-                      {isListeningToMic ? (micTranscript || 'Habla claro por tu micrófono...') : `"${latestFlyThought}"`}
-                    </p>
                   </div>
 
-                  {/* Direct Microphone Button */}
+                  <p className="text-[11px] text-white font-medium truncate flex-1">
+                    {isListeningToMic
+                      ? (micTranscript || 'Habla claro por tu micrófono...')
+                      : activeFlySpeech
+                      ? `"${activeFlySpeech.text}"`
+                      : `"${latestFlyThought}"`}
+                  </p>
+
+                  {activeFlySpeech && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveFlySpeech(null);
+                      }}
+                      className="text-slate-500 hover:text-white p-0.5 shrink-0"
+                      title="Descartar y volver a pensamientos de fondo"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Right: Inline Quick Reply Form & Voice / Action Controls */}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (quickReplyText.trim()) {
+                      handleSendHumanMessage(null, quickReplyText.trim());
+                      setQuickReplyText('');
+                    }
+                  }}
+                  className="flex items-center space-x-1.5 shrink-0 w-full sm:w-auto justify-end"
+                >
+                  <input
+                    type="text"
+                    value={quickReplyText}
+                    onChange={(e) => setQuickReplyText(e.target.value)}
+                    placeholder={activeFlySpeech?.type === 'inquiry' ? "Respóndele aquí..." : "Háblale a la mosca..."}
+                    className="bg-slate-900/90 border border-slate-700/80 rounded-xl px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition w-28 sm:w-40"
+                  />
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleMicListening();
-                    }}
-                    className={`p-1 px-2.5 rounded-full text-[10px] font-bold font-mono transition flex items-center space-x-1 shrink-0 ${
+                    type="submit"
+                    disabled={!quickReplyText.trim()}
+                    className="p-1.5 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white transition shrink-0"
+                    title="Enviar mensaje escrito"
+                  >
+                    <Send className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleMicListening}
+                    className={`p-1.5 px-2 rounded-xl text-xs font-mono transition flex items-center space-x-1 shrink-0 ${
                       isListeningToMic
                         ? 'bg-rose-600 text-white animate-pulse'
                         : 'bg-slate-900 hover:bg-slate-800 text-pink-300 border border-pink-500/40'
                     }`}
-                    title={isListeningToMic ? "Detener y procesar voz" : "Hablar por micrófono con la mosca"}
+                    title={isListeningToMic ? "Detener micrófono" : "Hablar por micrófono con la mosca"}
                   >
-                    <Mic className={`w-3 h-3 ${isListeningToMic ? 'animate-bounce text-white' : 'text-pink-300'}`} />
-                    <span>{isListeningToMic ? 'Parar' : 'Hablar'}</span>
+                    <Mic className={`w-3.5 h-3.5 ${isListeningToMic ? 'animate-bounce text-white' : 'text-pink-300'}`} />
+                    <span className="hidden md:inline text-[10px]">{isListeningToMic ? 'Parar' : 'Mic'}</span>
                   </button>
-
-                  {/* Voice Synthesis Toggle */}
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleVoiceSynthesis();
-                    }}
-                    className="p-1 rounded-full text-slate-400 hover:text-white transition shrink-0"
+                    type="button"
+                    onClick={triggerProactiveQuestion}
+                    className="p-1.5 px-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono transition shrink-0 hidden sm:flex items-center space-x-0.5"
+                    title="Invitar a la mosca a hacerte una pregunta espontánea"
+                  >
+                    <span>❓ Pregúntame</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceSynthesis}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-white bg-slate-900 border border-slate-800 transition shrink-0"
                     title={isVoiceSynthesisOn ? "Voz activa (clic para silenciar)" : "Voz silenciada (clic para activar)"}
                   >
-                    {isVoiceSynthesisOn ? <Volume2 className="w-3 h-3 text-pink-400" /> : <VolumeX className="w-3 h-3 text-slate-600" />}
+                    {isVoiceSynthesisOn ? <Volume2 className="w-3.5 h-3.5 text-pink-400" /> : <VolumeX className="w-3.5 h-3.5 text-slate-600" />}
                   </button>
-                </div>
-              )}
+                  <button
+                    type="button"
+                    onClick={() => setShowConsciousnessModal(true)}
+                    className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-purple-300 border border-purple-500/40 transition shrink-0"
+                    title="Abrir panel completo de Conciencia, Memoria y Gemini"
+                  >
+                    <BrainCircuit className="w-3.5 h-3.5 text-purple-400" />
+                  </button>
+                </form>
+              </div>
             </div>
           )}
 

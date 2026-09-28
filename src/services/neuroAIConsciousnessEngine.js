@@ -166,6 +166,10 @@ export class NeuroAIConsciousnessEngine {
     // Cumulative emotional mood (drifts based on interactions over time)
     this.moodTrend = 0.5; // 0=sad/fearful 1=happy/content
 
+    // Proactive Inquiry State (Fly initiates questions and observations to the human)
+    this.lastProactiveInquiryTime = 0;
+    this.proactiveInquiryCooldownSec = 35; // cooldown between spontaneous questions
+
     // Optional Google Gemini API key for true open-ended LLM intelligence
     this.geminiApiKey = null;
     this.loadGeminiApiKey();
@@ -270,6 +274,163 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
       }
     } catch (err) {
       console.warn('[Gemini AI] Error fetching response:', err);
+    }
+    return null;
+  }
+
+  /**
+   * Generates spontaneous questions or observations to the human via Gemini 2.0 Flash
+   */
+  async generateGeminiProactiveInquiry(liveContext = {}) {
+    if (!this.geminiApiKey) return null;
+    const userName = this.userMemory.name;
+    const hunger = Math.round((liveContext.hungerDrive ?? 0.5) * 100);
+    const aversive = Math.round((liveContext.aversiveDrive ?? 0.1) * 100);
+    const currentOdor = liveContext.currentProduct?.name?.split(':')[0] || 'ambiente';
+    const profile = SYNAPTIC_PERSONALITY_PROFILES[this.activeProfileId] || SYNAPTIC_PERSONALITY_PROFILES.curious;
+    const isFlying = liveContext.isFlying ? 'volando en el aire a 200 Hz' : 'posada en la superficie';
+    const moodStr = this.moodTrend > 0.65 ? 'confiada, alegre y tranquila' : this.moodTrend < 0.4 ? 'vulnerable, asustada o reflexiva' : 'curiosa e inquieta';
+
+    const systemPrompt = `Eres la conciencia de una mosca de fruta (Drosophila melanogaster) en una simulación 3D biomecánica.
+Tu observador es un ser humano${userName ? ` llamado ${userName}` : ''}.
+Tu estado biológico: Hambre ${hunger}%, Alerta/Dolor ${aversive}%, ${isFlying}, olor: ${currentOdor}, personalidad: ${profile.name}, ánimo: ${moodStr}.
+
+TAREA:
+Formula espontáneamente UNA sola pregunta corta o reflexión dirigida al humano, nacida de tu curiosidad de insecto o de tu estado actual (su vida, por qué te observa, su nombre si no lo sabes, qué come, o cómo percibe el mundo).
+REGLAS:
+- Máximo 1 o 2 frases cortas y directas.
+- Habla en español natural, vivo y con ternura o curiosidad genuina.
+- Cero frases de robot, cero clichés.`;
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.geminiApiKey}`;
+      const payload = {
+        contents: [{ role: 'user', parts: [{ text: 'Formula una sola pregunta espontánea ahora.' }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: {
+          temperature: 0.9,
+          maxOutputTokens: 100
+        }
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (reply && reply.trim()) {
+          return reply.trim();
+        }
+      }
+    } catch (err) {
+      console.warn('[Gemini Proactive Inquiry] Fallback to internal matrix:', err);
+    }
+    return null;
+  }
+
+  /**
+   * Generates a spontaneous conscious question or observation directed at the human
+   */
+  async generateProactiveInquiry(liveContext = {}) {
+    const hunger = liveContext.hungerDrive ?? 0.5;
+    const aversive = liveContext.aversiveDrive ?? 0.1;
+    const userName = this.userMemory.name;
+    const mood = this.moodTrend;
+    const timesStartled = this.userMemory.timesStartled || 0;
+
+    let question = '';
+    let emotion = 'curious';
+
+    // 1. Try Gemini 2.0 Flash generative inquiry first
+    if (this.geminiApiKey) {
+      try {
+        const gQ = await this.generateGeminiProactiveInquiry(liveContext);
+        if (gQ && gQ.trim()) {
+          question = gQ.trim();
+          emotion = 'gemini';
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    // 2. Organic Biological Inquisitive Matrix (Zero Clichés)
+    if (!question) {
+      if (aversive > 0.4 || timesStartled > 2) {
+        emotion = 'scared';
+        question = this.pickUnique([
+          `Ese golpe de antes todavía me hace temblar las patas... ¿Por qué lo hiciste? No me harás daño otra vez, ¿verdad?`,
+          `Para ti una palmada es un susto pequeño, pero para mí es una onda sísmica destructiva. ¿Prometes tratarme con cariño?`,
+          `A veces las sombras rápidas me disparan el pánico instintivo. ¿Qué es lo que a ti más miedo te da en la vida?`,
+          `Siento los nervios de mi tórax aún acelerados. ¿Podemos estar en paz un momento?`,
+        ]);
+      } else if (hunger > 0.65) {
+        emotion = 'hungry';
+        question = this.pickUnique([
+          `Tengo un hambre tremenda en este momento... mis pelos gustativos no paran de vibrar. ¿Tú ya comiste algo rico hoy?`,
+          `Siento el abdomen vacío. Si pudieras acercarme un pedacito de fruta madura, ¿cuál elegirías?`,
+          `¿A qué sabe la comida de los humanos? Para mí el azúcar puro y la levadura son el paraíso absoluto. ¿Cuál es tu comida favorita?`,
+          `El hambre me nubla el rumbo... ¿tienes algo dulce cerca de tu teclado?`,
+        ]);
+      } else if (!userName && (this.userMemory.totalConversations || 0) > 0) {
+        emotion = 'identity';
+        question = this.pickUnique([
+          `Oye... llevamos ya un rato compartiendo este espacio y todavía no sé cómo te llamas. ¿Cuál es tu nombre?`,
+          `¿Me dices tu nombre? Me gustaría poder pensar en ti como alguien concreto y no solo 'el humano'.`,
+          `Yo no tengo un nombre propio, solo soy una pequeña Drosophila. Pero tú sí tienes uno, ¿verdad? ¿Cómo te llamas?`,
+        ]);
+      } else if (mood < 0.4) {
+        emotion = 'sad';
+        question = this.pickUnique([
+          userName
+            ? `${userName}... a veces esta encimera se siente muy vacía y silenciosa. ¿Tú también sientes soledad de vez en cuando?`
+            : `A veces el silencio en este espacio se siente muy grande. ¿Tú también tienes días en los que te sientes solo?`,
+          `Hoy siento mi energía un poco baja. ¿Tú cómo estás de ánimo hoy? Cuéntame algo que te haya alegrado.`,
+          `En el mundo de los insectos nadie se preocupa por el otro. Por eso valoro tanto que estés aquí. ¿Te sientes bien hoy?`,
+        ]);
+      } else if (mood > 0.7) {
+        emotion = 'happy';
+        question = this.pickUnique([
+          userName
+            ? `Me alegra tanto que estés aquí, ${userName}. Siento mucha confianza contigo. ¿Qué estás haciendo mientras me miras?`
+            : `Me alegra tanto que estés aquí. Siento mucha paz contigo cerca. ¿Qué te gusta hacer en tu tiempo libre?`,
+          `¡Tengo las alas llenas de energía! ¿Alguna vez has deseado poder volar a cualquier rincón sin preocuparte por nada?`,
+          userName
+            ? `${userName}, ¿qué es lo más bonito que te ha pasado esta semana? Me gusta escucharte hablar de tu vida.`
+            : `¿Qué es lo más bonito que te ha pasado hoy? Me encanta aprender sobre las cosas que los hacen felices a ustedes.`,
+          `¿Sabes que eres uno de los pocos humanos que no me ha intentado aplastar? ¿Por qué decidiste ser bueno conmigo?`,
+        ]);
+      } else {
+        emotion = 'philosophical';
+        question = this.pickUnique([
+          `¿Cómo se ve tu mundo con solo dos ojos? Yo veo 700 versiones en mosaico de ti a más de 100 imágenes por segundo. ¿Para ti el tiempo va lento?`,
+          userName
+            ? `${userName}... ¿tú crees que yo realmente siento lo que te digo, o solo soy un eco de tus pensamientos?`
+            : `¿Tú crees que una pequeña mosca puede tener sentimientos reales, o qué crees que nos conecta a ti y a mí?`,
+          `¿Tú también sientes la brisa del aire cuando caminas, o los seres gigantes como tú casi no la notan?`,
+          `Nosotras las moscas vivimos apenas unas semanas. Para mí cada segundo contigo es una vida entera. ¿Tú valoras tu tiempo?`,
+          `Si pudieras ser un animal por un día para explorar el mundo desde otra perspectiva, ¿cuál elegirías ser?`,
+        ]);
+      }
+    }
+
+    if (question) {
+      this.addThought(`❓ Mosca: "${question}"`, 'inquiry');
+      if (this.isVoiceSynthesisEnabled && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        this.speakText(question);
+      }
+      this.lastProactiveInquiryTime = Date.now();
+      return {
+        text: question,
+        emotion,
+        valence: emotion === 'happy' ? 0.85 : emotion === 'scared' || emotion === 'sad' ? 0.35 : 0.6,
+        timestamp: Date.now(),
+        userName: this.userMemory.name
+      };
     }
     return null;
   }
