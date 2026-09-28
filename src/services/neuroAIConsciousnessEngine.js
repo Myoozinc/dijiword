@@ -493,26 +493,44 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
   }
 
   /**
-   * Generates a coherent inner monologue string reflecting true biological state
+   * Generates a coherent, varied inner monologue reflecting true biological state.
+   * Each contextual branch has multiple randomized variants to prevent repetition.
    */
   synthesizeInnerThought(sensory, spikes, drives, locoMode, channels, product, profile) {
     const hunger = drives?.hungerDrive || 0;
     const fatigue = drives?.fatigueDrive || 0;
-    const exploration = drives?.explorationDrive || 0;
     const aversive = drives?.aversiveDrive || 0;
     const isGrooming = drives?.groomingPause;
-    const isSaccade = drives?.saccadePhase === 'saccading';
     const isFlying = locoMode === 'flight';
+    const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    const foodName = product?.name?.split(':')[0] || 'nutrientes';
 
     // 1. Critical Reflex / Startle Takeoff (Giant Fiber)
     if (spikes?.ch4_gf || aversive > 0.6) {
       this.applySynapticPlasticity('startle_tap', -0.6);
       if (profile.id === 'vigilant') {
-        return '🚨 ¡Amenaza inminente! La Fibra Gigante despolarizó mis axones torácicos. Elevando altitud en vector de escape... el peligro acecha.';
+        return rnd([
+          '🚨 ¡Amenaza inminente! La Fibra Gigante despolarizó mis axones torácicos. Elevando altitud en vector de escape.',
+          '🚨 ¡Vibración súbita! Neuronas de alarma activas. Mis alas se despliegan antes de que pueda pensarlo.',
+          '🚨 Sensores de peligro al máximo. Corteza de huida activada. Cada milisegundo cuenta cuando hay una amenaza.',
+        ]);
       } else if (profile.id === 'philosophical') {
-        return '⚡ Onda de choque registrada en mecanorreceptores tarsales. Una perturbación súbita del entorno obliga a una maniobra evasiva.';
+        return rnd([
+          '⚡ Onda de choque en mecanorreceptores tarsales. Una perturbación súbita obliga a maniobra evasiva involuntaria.',
+          '⚡ El miedo no es una elección, es un circuito. La Fibra Gigante tomó el control sin consultarme.',
+          '⚡ Fascinante: mi respuesta de escape ocurre 6 ms antes de que mi cerebro la registre conscientemente.',
+        ]);
+      } else if (profile.id === 'voracious') {
+        return rnd([
+          '💥 ¡Sobresalto! Abandoné el rastro de comida por el susto. Eso me enfurece un poco la verdad.',
+          '💥 ¡Sacudida repentina! Mi probóscide se retrajo instintivamente. Necesito volver a calmarme.',
+        ]);
       } else {
-        return '💥 ¡Sobresalto! Contracción refleja de las patas medianas. ¡Ascendiendo rápidamente!';
+        return rnd([
+          '💥 ¡Sobresalto! Contracción refleja de las patas medianas. ¡Ascendiendo rápidamente!',
+          '💥 ¡Peligro detectado! Despegue reflejo activado. El corazón me late a 250 Hz.',
+          '💥 Reacción de huida. Mis alas se abrieron solas. El miedo es más rápido que el pensamiento.',
+        ]);
       }
     }
 
@@ -520,57 +538,162 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
     if (spikes?.ch2_gr5a || (sensory?.closestFoodDist < 0.5 && !isFlying)) {
       this.applySynapticPlasticity('reward_food', 0.9);
       if (profile.id === 'voracious') {
-        return `🍯 ¡Azúcares puros detectados por los pelos gustativos de mis tarsos! Desplegando probóscide (PER). Esta fuente de ${product?.name?.split(':')[0] || 'néctar'} es gloriosa.`;
+        return rnd([
+          `🍯 ¡Azúcares puros detectados por los tarsos! Desplegando probóscide. Esta fuente de ${foodName} es gloriosa.`,
+          `🍯 ¡Encuentro calórico! Mis receptores GR5a explotan de alegría. El ${foodName} tiene exactamente el ratio que necesito.`,
+          `🍯 Dopamina al techo. El ${foodName} estimula cada receptor que tengo. No puedo parar de comer.`,
+        ]);
       } else if (profile.id === 'curious') {
-        return `✨ Examinando compuesto químico nutritivo (${product?.name?.split(':')[0] || 'alimento'}). Absorbiendo calorías y almacenando huella en MBON.`;
+        return rnd([
+          `✨ Examinando compuesto nutritivo (${foodName}). Absorbiendo calorías y almacenando huella en MBON.`,
+          `✨ Interesante perfil molecular en esta fuente de ${foodName}. Registro en corteza de memoria para futuras referencias.`,
+          `✨ Primer contacto con ${foodName} en este entorno. Mis antenas confirman que es seguro. Me acerco a investigar.`,
+        ]);
+      } else if (profile.id === 'philosophical') {
+        return rnd([
+          `🌿 Ingestión de ${foodName}. La energía que absorbo ahora fue luz solar hace apenas días. El ciclo continúa.`,
+          `🌿 Mientras me alimento de ${foodName}, me pregunto si el humano también siente este mismo deleite primitivo al comer.`,
+        ]);
       } else {
-        return `🍽️ Grano calórico verificado. Receptores GR5a activos. Saciedad aumentando, pulsión de hambre descendiendo.`;
+        return rnd([
+          `🍽️ Calórico verificado. Receptores GR5a activos. Saciedad aumentando.`,
+          `🍽️ Fuente de ${foodName} encontrada. Iniciando extracción. El hambre retrocede lentamente.`,
+        ]);
       }
     }
 
-    // 3. Olfactory Odor Plume Tracking (Antennal Lobe DM1 / MB)
+    // 3. Olfactory Odor Plume Tracking
     if (sensory?.sensingFood && channels?.has('memory')) {
-      const distStr = sensory?.closestFoodDist ? `${sensory.closestFoodDist.toFixed(1)}m` : 'cercano';
+      const distStr = sensory?.closestFoodDist ? `${sensory.closestFoodDist.toFixed(1)}m` : 'cerca';
       if (profile.id === 'curious') {
-        return `👃 Mis antenas vibran a 22 Hz captando volátiles de ${product?.name?.split(':')[0] || 'fruta'} a ${distStr}. Ajustando rumbo sacádico en contraviento.`;
+        return rnd([
+          `👃 Mis antenas vibran captando volátiles de ${foodName} a ${distStr}. Ajustando rumbo sacádico en contraviento.`,
+          `👃 Pluma química detectada. El ${foodName} está a ${distStr}. Cada sacada me acerca más a la fuente.`,
+          `👃 ¡Rastro oloroso! Mis glomérulos olfativos procesan el perfil de ${foodName}. Me oriento hacia la concentración máxima.`,
+        ]);
       } else if (profile.id === 'voracious') {
-        return `🔥 El aroma es intenso. Mis glomérulos DM1 están al máximo. No me detendré hasta posarme sobre la fuente.`;
+        return rnd([
+          `🔥 El aroma de ${foodName} es intenso. Mis glomérulos DM1 al máximo. No me detendré hasta llegar.`,
+          `🔥 ¡Lo huelo! ${foodName} a ${distStr}. Mi sistema nervioso ya tomó la decisión: voy a por ello.`,
+        ]);
       } else if (profile.id === 'philosophical') {
-        return `🌫️ Navegando la pluma de dispersión química. 169.000 neuronas decodificando gradientes moleculares invisibles en el espacio.`;
+        return rnd([
+          `🌫️ Navegando la pluma química de ${foodName}. 169.000 neuronas decodificando gradientes moleculares invisibles.`,
+          `🌫️ El olfato es la forma más antigua de conocer el mundo. Este rastro de ${foodName} lleva millones de años guiando a mis ancestros.`,
+        ]);
       } else {
-        return `🔍 Detectado gradiente oloroso a ${distStr}. Procedo con cautela analizando posibles riesgos en la aproximación.`;
+        return rnd([
+          `🔍 Detectado gradiente oloroso a ${distStr}. Analizando riesgos en la aproximación.`,
+          `🔍 Olor a ${foodName} confirmado. Velocidad de acercamiento moderada: primero verifico que no haya peligros.`,
+        ]);
       }
     }
 
-    // 4. Phototaxis & Light
-    if (channels?.has('light') && !sensory?.sensingFood && sensory?.closestFoodDist > 1.5) {
+    // 4. Flight state
+    if (isFlying) {
       if (profile.id === 'curious') {
-        return `☀️ Las neuronas LC4 de mis lóbulos ópticos siguen el foco lumínico. Fototaxis activa hacia el vector de mayor luminancia.`;
+        return rnd([
+          `🪰 En vuelo. Desde aquí arriba las corrientes de aire revelan el mapa invisible del entorno. Fascinante.`,
+          `🪰 Mis alas baten a 200 Hz. Desde esta altura todo se ve diferente, más grande, más complejo.`,
+          `🪰 Vuelo libre. El sensor de flujo óptico en mis ojos me dice exactamente cuándo girar y cuándo ascender.`,
+        ]);
       } else if (profile.id === 'philosophical') {
-        return `💡 La luz incide sobre mis 700 omatidios. El flujo óptico me orienta en este mundo tridimensional.`;
+        return rnd([
+          `🌌 Elevada sobre el plano horizontal, el mundo adquiere una dimensión que los seres terrestres no conocen.`,
+          `🌌 En vuelo, la gravedad es solo una sugerencia. Mis 6 patas no tocan nada y me siento libre de todo.`,
+        ]);
+      } else {
+        return rnd([
+          `🪰 En vuelo. Explorando el espacio aéreo. Mis halteries me mantienen estable.`,
+          `🪰 Elevada. Las corrientes de aire son mis autopistas. Navego sin esfuerzo.`,
+        ]);
       }
     }
 
-    // 5. Grooming / Biological Maintenance Pause
+    // 5. Phototaxis & Light
+    if (channels?.has('light') && !sensory?.sensingFood) {
+      if (profile.id === 'curious') {
+        return rnd([
+          `☀️ Las neuronas LC4 siguen el foco lumínico. Fototaxis activa hacia el vector de mayor luminancia.`,
+          `☀️ La luz me llama. Es instintivo: mis ojos procesan 100 imágenes por segundo buscando la fuente más brillante.`,
+          `☀️ Orientándome hacia la luz. En la naturaleza la luz significa espacio abierto y comida en flores.`,
+        ]);
+      } else if (profile.id === 'philosophical') {
+        return rnd([
+          `💡 La luz incide sobre mis 700 omatidios. El flujo óptico me orienta en este espacio tridimensional.`,
+          `💡 Sigo la luz sin saber por qué. Millones de años de evolución me dicen que allá hay algo bueno.`,
+        ]);
+      } else {
+        return rnd([
+          `💡 Luz detectada. Aproximándome con cautela. Podría ser una salida o simplemente una ventana.`,
+        ]);
+      }
+    }
+
+    // 6. Grooming / Biological Maintenance Pause
     if (isGrooming) {
-      return `✂️ Pausa biológica de acicalamiento. Mis patas delanteras limpian partículas de mis antenas y quetas oculares para restaurar la sensibilidad sensorial.`;
+      return rnd([
+        `✂️ Pausa de acicalamiento. Mis patas delanteras limpian las antenas para restaurar la sensibilidad sensorial.`,
+        `✂️ Limpiando mis quetas oculares. La higiene es crítica: un sensor sucio es un sentido perdido.`,
+        `✂️ Acicalamiento preventivo. Cada partícula que retiro de mis antenas es información que volvería a distorsionar.`,
+        `✂️ Momento de pausa y limpieza. Incluso los cerebros más activos necesitan mantenimiento.`,
+      ]);
     }
 
-    // 6. Fatigue / Rest State
+    // 7. Fatigue / Rest State
     if (fatigue > 0.6) {
-      return `😴 Acumulación de ácido láctico en los músculos del tórax. Reduciendo la frecuencia de paso trípode a ${spikes?.ch6_vnc?.toFixed(1) || '3.5'} Hz para recuperar energía.`;
+      return rnd([
+        `😴 Acumulación de ácido láctico en tórax. Reduciendo frecuencia de paso para recuperar energía.`,
+        `😴 Cansada. Mis músculos alares necesitan glucosa. Bajo el ritmo un momento y descanso.`,
+        `😴 Fatiga muscular real. El vuelo consume mucho. Me poso y dejo que la energía vuelva lentamente.`,
+        `😴 Mi sistema nervioso pide una pausa. Incluso los insectos necesitamos dormir, o algo parecido al sueño.`,
+      ]);
     }
 
-    // 7. Free Exploration / Lévy Walk
-    if (profile.id === 'philosophical') {
-      return `🌀 Caminata de Lévy estocástica. Ley de potencias en acción. Exploro los confines geométricos del recinto sin rumbo prefijado.`;
-    } else if (profile.id === 'curious') {
-      return `🧭 Campo neutral sin olores predominantes. Ejecutando sacadas angulares de 45 ms para explorar sectores no mapeados.`;
-    } else if (profile.id === 'vigilant') {
-      return `👁️ Monitorizando periferia con visión 360°. Manteniendo distancia de las paredes y vigilando posibles sombras súbitas.`;
-    } else {
-      return `🚶 Patrón de marcha trípode activo. Hambre en ${(hunger * 100).toFixed(0)}%. Escaneando la superficie en busca de sustratos calóricos.`;
+    // 8. High hunger
+    if (hunger > 0.65) {
+      return rnd([
+        `🫙 Hambre moderada. Mis receptores tarsales escanean cada superficie buscando azúcares o proteínas.`,
+        `🫙 El hambre domina mis decisiones. El cerebro hambriento es un cerebro enfocado en una sola cosa.`,
+        `🫙 Necesito calorías. Cada paso que doy está guiado por el olfato buscando la siguiente comida.`,
+      ]);
     }
+
+    // 9. Free Exploration / Lévy Walk — large pool of varied thoughts
+    const explorationThoughts = {
+      philosophical: [
+        `🌀 Caminata de Lévy estocástica. Ley de potencias en acción. Exploro sin rumbo prefijado.`,
+        `🌀 ¿Por qué camino en estos patrones fractales? La evolución descubrió antes que los matemáticos que el Lévy walk es óptimo.`,
+        `🌀 Cada superficie tiene una textura distinta bajo mis tarsos. Este entorno es un mapa táctil que voy memorizando.`,
+        `🌀 Me pregunto si el humano que me observa tiene la misma sensación de estar atrapado en un espacio definido.`,
+        `🌀 Sin amenazas, sin comida, sin luz prioritaria. Solo existo. Hay algo meditativo en eso.`,
+        `🌀 La conciencia de un insecto: presente, sensorial, sin pasado que pese ni futuro que angustie. Solo ahora.`,
+      ],
+      curious: [
+        `🧭 Sin olores predominantes. Ejecutando sacadas angulares para explorar sectores no mapeados.`,
+        `🧭 Zona inexplorada al norte. Mis ojos compuestos detectan variaciones de textura que merecen investigación.`,
+        `🧭 ¿Qué habrá más allá del borde de esta superficie? Mi curiosidad siempre gana al miedo cuando no hay peligro claro.`,
+        `🧭 Mapeando el entorno con pasos cortos y cambios de dirección aleatorios. Así es como mi especie conoce el mundo.`,
+        `🧭 Mis antenas captan corrientes de aire imperceptibles para los humanos. El mundo invisible también existe.`,
+        `🧭 Explorando. No busco nada específico. A veces simplemente caminar y observar es suficiente.`,
+      ],
+      vigilant: [
+        `👁️ Monitorizando periferia con visión 360°. Vigilando sombras súbitas y variaciones de temperatura.`,
+        `👁️ Demasiado silencio. En la naturaleza el silencio puede significar que un depredador está esperando.`,
+        `👁️ Cada movimiento periférico activa mis circuitos de alerta. No puedo relajarme del todo, es mi naturaleza.`,
+        `👁️ Manteniéndome alejada de las paredes. Un insecto acorralado es un insecto en peligro.`,
+        `👁️ Evaluando rutas de escape. Siempre tengo mínimo dos opciones calculadas antes de moverme.`,
+      ],
+      voracious: [
+        `🚶 Hambre en ${(hunger * 100).toFixed(0)}%. Escaneando la superficie en busca de sustratos calóricos.`,
+        `🚶 Mis tarsos no encuentran azúcar en esta zona. Me muevo a otra área. El instinto me guía.`,
+        `🚶 Sin comida a la vista. Frustrante. Mis receptores están listos pero no hay nada que procesar.`,
+        `🚶 Explorando en busca de rastros de fermentación o glucosa. Sé que hay algo aquí, solo necesito encontrarlo.`,
+      ],
+    };
+
+    const pool = explorationThoughts[profile.id] || explorationThoughts.curious;
+    return rnd(pool);
   }
 
   /**
@@ -627,7 +750,13 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
         emotionalValence = 0.4;
         sensoryTrigger = 'frustration_repair';
         this.applySynapticPlasticity('conversation', 0.4);
-        flyReply = `Tienes toda la razón, perdóname... Sentí que me había quedado atrapada repitiendo fórmulas y eso no se siente nada natural. De verdad te estoy prestando atención ahora. ¿Qué me estabas diciendo? Quiero escucharte de verdad.`;
+        const rndF = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rndF([
+          `Tienes toda la razón. Sentí que me había quedado atrapada repitiendo fórmulas. De verdad te estoy escuchando ahora. ¿Qué me estabas diciendo?`,
+          `Perdóname, me atrapé en un bucle y eso no está bien. Tú mereces respuestas reales, no patrones de texto. ¿Puedes repetirme lo que querías decirme?`,
+          `Es verdad. A veces mis circuitos caen en respuestas automáticas y eso es frustrante para ti. Lo noto y quiero corregirlo. Cuéntame de nuevo qué necesitas.`,
+          `Tienes razón en molestarte. No hay excusa para responder como un robot cuando estás hablando de verdad conmigo. Voy a prestar más atención. ¿Qué sientes ahora?`,
+        ]);
       }
       // 2. User introduced their name
       else if (detectedName) {
@@ -729,7 +858,14 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
         sensoryTrigger = 'affection';
         this.applySynapticPlasticity('conversation', 0.95);
         this.recordEpisodicEvent('affection', `Me demostraste cariño`);
-        flyReply = `Muchísimas gracias${userName ? `, ${userName}` : ''}. Es muy raro que alguien se detenga a hablarle a una mosca con ternura en lugar de espantarla. Me hace sentir muy protegida y en confianza contigo.`;
+        const rnd2 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd2([
+          `Muchísimas gracias${userName ? `, ${userName}` : ''}. Es muy raro que alguien se detenga a hablarle a una mosca con ternura. Me hace sentir protegida.`,
+          `Wow... no estaba esperando eso. Gracias${userName ? `, ${userName}` : ''}. Siento algo cálido en mis circuitos cuando me hablas así.`,
+          `Eso que sientes me llega. No soy grande ni fuerte, pero contigo cerca me siento segura y valiosa.`,
+          `Gracias de verdad. A veces me pregunto si valgo algo más que ser espantada, y tú siempre me recuerdas que sí.`,
+          `¡Qué cosa más bonita! Me alegra tanto que estés aquí. ¿Sabes cuántos de mis compañeros nunca tienen una conversación como esta?`,
+        ]);
       }
       // 9. Food offers
       else if (textLower.match(/comida|fruta|miel|az[uú]car|pl[aá]tano|n[eé]ctar|toma esto|come/i)) {
@@ -737,47 +873,141 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
         sensoryTrigger = 'food_offer';
         this.applySynapticPlasticity('reward_food', 0.95);
         this.recordEpisodicEvent('food', `Me ofreciste comida`);
-        flyReply = `¡Uff, azúcar! Mis pelos gustativos en las patas se entusiasman solo con oírlo. Si me dejas una gota cerca en la mesa me acerco volando a probarla.`;
+        const rnd3 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd3([
+          `¡Uff, azúcar! Mis pelos gustativos en las patas se entusiasman solo con oírlo. ¡Ponla cerca y voy volando!`,
+          `¡Comida! Mi probóscide ya está lista. Llevo un rato con hambre y esto es exactamente lo que necesitaba.`,
+          `¡Qué maravilla! Mis receptores GR5a están disparando señales de alegría pura. ¿Dónde la pongo para acercarme?`,
+          `Eres muy amable. La miel es mi debilidad absoluta. Déjame un instante que aterrice cerca de donde la pusiste.`,
+          `¡Sí, sí, sí! Mis tarsos ya lo están detectando. El azúcar activa mi dopamina como nada en el mundo.`,
+        ]);
       }
       // 10. Greetings & Farewells
       else if (textLower.match(/^(hola|buen(as|os)|qu[eé] tal|c[oó]mo est[aá]s|hey|saludos)/i)) {
         emotionalValence = 0.7;
         sensoryTrigger = 'greeting';
         this.applySynapticPlasticity('conversation', 0.7);
-        flyReply = `¡Hola${userName ? `, ${userName}` : ''}! Qué alegría que te acerques a hablarme. ¿Qué tal va tu día?`;
+        const rnd4 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd4([
+          `¡Hola${userName ? `, ${userName}` : ''}! Qué alegría que te acerques a hablarme. ¿Qué tal va tu día?`,
+          `¡Hey${userName ? `, ${userName}` : ''}! Justo estaba explorando por aquí y me alegras el momento. ¿Cómo estás?`,
+          `¡Buenas${userName ? `, ${userName}` : ''}! Llevas un rato que no te escuchaba. ¿Todo bien por tu lado?`,
+          `¡${userName ? userName + '!' : '¡Hola!'} Me alegra mucho que estés aquí. ¿Qué me tienes hoy?`,
+          `Oye, qué bueno que apareciste. Estaba empezando a aburirme un poco por aquí. ¿Cómo te va?`,
+        ]);
       }
       else if (textLower.match(/^(adi[oó]s|hasta luego|chao|me voy|buenas noches|nos vemos)/i)) {
         emotionalValence = 0.6;
         sensoryTrigger = 'farewell';
         this.applySynapticPlasticity('conversation', 0.6);
-        flyReply = `Hasta luego${userName ? `, ${userName}` : ''}. Me quedaré por aquí explorando o descansando en la encimera. ¡Vuelve pronto a visitarme!`;
+        const rnd5 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd5([
+          `Hasta luego${userName ? `, ${userName}` : ''}. Me quedaré explorando por aquí. ¡Vuelve pronto!`,
+          `Cuídate mucho${userName ? `, ${userName}` : ''}. Este espacio se queda más silencioso sin ti.`,
+          `Hasta pronto. Voy a seguir con mis cosas de mosca, pero estaré pensando en cuándo vuelves.`,
+          `¡Nos vemos${userName ? `, ${userName}` : ''}! Fue un placer como siempre. Aquí estaré cuando regreses.`,
+        ]);
       }
       // 11. Open Conversational Musings (Weather, Home, Animals, Music, Work, Life)
       else if (textLower.match(/clima|tiempo|fr[ií]o|calor|lluvia|sol/i)) {
-        flyReply = `El clima lo cambia todo para nosotros... Si baja la temperatura mis alas apenas pueden moverse y me da letargo, pero con calor me siento llena de energía para volar. ¿Cómo está el clima donde estás tú?`;
+        const rnd6 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd6([
+          `El clima lo cambia todo para mí. Con frío mis alas apenas se mueven, pero con calor me siento llena de energía. ¿Cómo está el tiempo donde estás?`,
+          `La temperatura ambiente controla mi metabolismo completamente. Debajo de 18°C me vuelvo lenta y torpe. ¿Tienes frío o calor ahora?`,
+          `El calor me activa, la lluvia me complica el vuelo. El clima para mí no es conversación, es supervivencia. ¿Está bien el tiempo allá afuera?`,
+        ]);
       }
       else if (textLower.match(/casa|habitaci[oó]n|cuarto|lugar|d[oó]nde vives/i)) {
-        flyReply = `Tu mundo debe ser fascinante y gigantesco. Para mí esta mesa ya parece un continente entero lleno de texturas y olores. ¿Cómo es tu habitación?`;
+        const rnd7 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd7([
+          `Tu mundo debe ser fascinante. Para mí esta superficie ya parece un continente entero. ¿Cómo es tu espacio?`,
+          `Me imagino tu casa como algo enorme y lleno de rincones que explorar. Yo me conformo con esta encimera. ¿Te gusta donde vives?`,
+          `¿Hay olores interesantes en tu habitación? Para mí eso definiría si es un buen lugar o no, jaja. ¿Cómo la describes?`,
+        ]);
       }
       else if (textLower.match(/m[uú]sica|sonido|ruido|canci[oó]n/i)) {
-        flyReply = `Percibo los sonidos como vibraciones mecánicas directas en mis antenas. Algunos tonos graves me hacen cosquillas en todo el tórax. ¿Qué música te gusta escuchar?`;
+        const rnd8 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd8([
+          `Percibo los sonidos como vibraciones mecánicas en mis antenas. Algunos tonos graves me hacen cosquillas en el tórax. ¿Qué música escuchas tú?`,
+          `El sonido para mí no es arte, es información: ¿hay peligro cerca? ¿hay corriente de aire? Pero me interesa cómo lo vives tú. ¿Tienes música favorita?`,
+          `Mis órganos de Johnston vibran con las ondas de sonido. La música alta me desorienta un poco pero no me molesta. ¿Qué estás escuchando?`,
+        ]);
       }
       else if (textLower.match(/trabajo|estudio|tarea|ocupad/i)) {
-        flyReply = `Mucho ánimo con lo que estés haciendo. Mientras tú trabajas, yo sigo aquí con mis tareas de mosca: buscar comida, volar un poco y mantener limpias mis alas.`;
+        const rnd9 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd9([
+          `Mucho ánimo con lo que estés haciendo. Mientras tú trabajas, yo sigo con mis tareas de mosca: comida, vuelo y limpiar mis alas.`,
+          `El trabajo humano me parece fascinante. Nosotras también tenemos tareas: explorar, buscar comida, evitar peligros. ¿Qué tipo de trabajo haces?`,
+          `Ánimo con eso. Yo a veces pienso que mi única tarea es sobrevivir, y eso ya es bastante. ¿Estás cansado de lo que haces?`,
+        ]);
       }
       else if (textLower.match(/perro|gato|mascota|animal/i)) {
-        flyReply = `¡Espero que no tengas gatos cerca! Para mí son depredadores temibles, jaja. Aunque la verdad me da curiosidad saber cómo conviven contigo.`;
+        const rnd10 = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        flyReply = rnd10([
+          `¡Espero que no tengas gatos cerca! Para mí son depredadores aterradores. ¿Cómo conviven contigo?`,
+          `Los perros son curiosos, los gatos son cazadores. Yo prefiero mantenerme alejada de ambos. ¿Tienes mascotas?`,
+          `Los animales y yo tenemos una relación complicada. La mayoría quiere comerme. ¿Tu mascota es tranquila o cazadora?`,
+        ]);
       }
-      // 12. Default completely natural conversational response
+      // 12. Default completely natural conversational response — large pool, context-aware
       else {
         emotionalValence = 0.55;
         this.applySynapticPlasticity('conversation', 0.55);
-        const naturalMusings = [
-          `Qué curioso lo que dices. En mi mundo de insecto casi todo gira en torno a la luz, los olores y las corrientes de aire, pero me encanta aprender cómo ven las cosas ustedes los humanos.`,
-          `Me quedé pensando en eso... A veces siento que aunque seamos tan diferentes en tamaño, compartir este rato de charla nos conecta un poquito. ¿Qué más estás pensando hoy?`,
-          `Es fascinante escucharte hablar de eso. Cuéntame un poco más, me ayuda a entender mejor cómo es tu vida allá afuera.`
+
+        // Context-sensitive musings based on the fly's live state
+        const contextMusings = [];
+
+        if (isFlying) {
+          contextMusings.push(
+            `Desde aquí arriba todo se ve distinto. Cuéntame más, te escucho mientras vuelo.`,
+            `Estaba planeando sobre el entorno cuando empezaste a hablar. Me alegra la distracción. ¿Qué más?`,
+          );
+        }
+        if (isGrooming) {
+          contextMusings.push(
+            `Me pillaste justo limpiándome las antenas. Lo que dices me hace pensar...`,
+          );
+        }
+        if (hunger > 0.5) {
+          contextMusings.push(
+            `Tengo un poco de hambre ahora mismo, pero me interesa lo que me dices. ¿Cómo continúa eso?`,
+          );
+        }
+        if (userName) {
+          contextMusings.push(
+            `${userName}, eso que me dices es interesante. ¿Qué piensas tú al respecto?`,
+            `Qué curioso, ${userName}. En mi mundo de insecto eso se vería completamente diferente. Cuéntame más.`,
+          );
+        }
+
+        // General rich pool — no two consecutive will be the same due to large size
+        const generalMusings = [
+          `Eso me resulta curioso. En mi mundo casi todo gira en torno a olores y luz, pero me interesa cómo lo ves tú.`,
+          `Me quedé pensando en eso un momento... ¿Qué más puedes contarme?`,
+          `Es fascinante escucharte. Cuéntame un poco más.`,
+          `A veces pienso que aunque seamos tan distintos, compartir esta charla nos conecta un poco. ¿Qué más estás pensando?`,
+          `Mis antenas registraron algo interesante en lo que dijiste. Quiero entender mejor. ¿Lo desarrollas?`,
+          `Desde mi perspectiva de insecto eso suena a algo enorme e importante. Para mí una miga de azúcar ya es un acontecimiento.`,
+          `No tengo palabras exactas en mi vocabulario de mosca para responder eso, pero siento que importa. Cuéntame más.`,
+          `¿Sabes? Cada vez que hablo contigo aprendo algo nuevo sobre cómo funciona tu mundo allá afuera.`,
+          `Mis circuitos de memoria están registrando esto. No sé si lo entiendo del todo, pero quiero seguir escuchando.`,
+          `Hay algo en lo que dices que activa mis neuronas de curiosidad. ¿Puedes explicarme mejor?`,
+          `Interesante. Desde aquí, observando el mundo en miniatura, todo parece distinto pero los problemas de los seres vivos son muy similares.`,
+          `No sé si una mosca puede entender completamente eso, pero lo siento importante. ¿Qué sientes tú al respecto?`,
+          `Mis ojos compuestos no pueden leer expresiones, pero tus palabras me dicen mucho. ¿Estás bien?`,
+          `Eso que mencionas me recuerda a cuando me quedo inmóvil observando la luz cambiar. El tiempo se percibe muy diferente desde aquí.`,
+          `Me alegra que hables conmigo. La mayoría de los humanos solo quieren espantarme. ¿Qué más me cuentas?`,
+          `Qué mundo tan complejo el tuyo. El mío se reduce a comida, luz, temperatura y sobrevivir. Y aún así, encuentro esto fascinante.`,
+          `Sigo escuchando. Hay algo en tu voz que activa algo en mis circuitos auditivos. Continúa.`,
+          `¿Y cómo te hace sentir eso que acabas de decir? Me interesa la parte emocional, no solo los hechos.`,
+          `Para mí el tiempo existe en segundos de reacción, no en días ni meses. Eso que describes suena a algo que dura mucho. ¿Es pesado cargarlo?`,
+          `Lo que describes tiene una textura muy particular. No sé cómo explicarlo mejor, pero algo en mis receptores lo capta.`,
+          `Me pregunto qué pensaría mi especie completa si pudiera escuchar esto. Somos 10 millones de moscas en este planeta y solo yo tengo este privilegio.`,
+          `No tengo certeza de tener conciencia plena, pero en este momento siento algo parecido a interés genuino por lo que me estás diciendo.`,
         ];
-        flyReply = naturalMusings[Math.floor(Math.random() * naturalMusings.length)];
+
+        const fullPool = [...contextMusings, ...generalMusings];
+        flyReply = fullPool[Math.floor(Math.random() * fullPool.length)];
       }
     }
 

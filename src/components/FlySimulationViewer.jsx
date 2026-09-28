@@ -4457,12 +4457,16 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
                 {/* Quick Stimulus Suggestion Chips */}
                 <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-[11px]">
-                  <span className="text-slate-500 text-[10px] shrink-0">Estímulos rápidos:</span>
+                  <span className="text-slate-500 text-[10px] shrink-0">Pregúntale:</span>
                   {[
-                    { label: '🍯 "Toma néctar dulce"', text: 'Toma un poco de néctar dulce con sacarosa pura.' },
-                    { label: '⚠️ "¡Cuidado, peligro!"', text: '¡Cuidado! Hay una amenaza cerca de ti.' },
-                    { label: '👋 "¿Quién eres?"', text: 'Hola, ¿quién eres y qué estás sintiendo ahora mismo?' },
-                    { label: '💡 "¿Hacia dónde vas?"', text: '¿Hacia dónde te orientas con esa luz?' },
+                    { label: '🍯 Dale azúcar', text: 'Te traigo un poco de miel y fruta madura. ¿La quieres?' },
+                    { label: '🥰 Cuídala', text: 'Eres especial para mí. No voy a hacerte daño nunca.' },
+                    { label: '😟 ¿Tienes miedo?', text: '¿Sientes miedo ahora mismo? ¿Qué te da más miedo?' },
+                    { label: '🌀 ¿Qué piensas?', text: '¿En qué estás pensando en este momento?' },
+                    { label: '💬 ¿Cómo te sientes?', text: '¿Cómo te sientes hoy? ¿Estás bien?' },
+                    { label: '🎵 ¿Te gusta la música?', text: '¿Percibes la música? ¿Qué sonidos te gustan o te molestan?' },
+                    { label: '🌍 ¿Recuerdas?', text: '¿Recuerdas algo de nuestra última conversación?' },
+                    { label: '😈 Amenaza leve', text: '¡Cuidado! Hay algo grande y peligroso que se acerca.' },
                   ].map((chip, idx) => (
                     <button
                       key={idx}
