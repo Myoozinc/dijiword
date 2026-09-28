@@ -334,6 +334,20 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
     // --- Walking speed noise ---
     speedNoiseSeed: Math.random() * 100,
+
+    // --- Spontaneous Behavior Variety ---
+    // Curiosity burst: fly abruptly changes direction and speeds up to investigate
+    curiosityBurstTimer: 0,         // >0 while in curiosity burst
+    nextCuriosityIn: 15 + Math.random() * 25, // seconds until next spontaneous curiosity burst
+    // Wall-following tendency: when near boundary fly may trace the edge for a bit
+    wallFollowTimer: 0,
+    wallFollowDir: 1,               // +1 or -1 along wall
+    // Pause & observe: fly occasionally stops completely and "watches"
+    pauseObserveTimer: 0,
+    nextPauseObserveIn: 20 + Math.random() * 30,
+    // Spontaneous wing buzz (micro-flutter without taking off)
+    wingBuzzTimer: 0,
+    nextWingBuzzIn: 12 + Math.random() * 20,
   });
 
   // 1. Initialize Connectome 3D Scene
@@ -1572,6 +1586,42 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
               bs.aversiveDrive = Math.max(0.0, bs.aversiveDrive - delta * 0.12);
             }
 
+            // ── A2. Spontaneous Behavior Variety Timers ───────────────────────────────
+            if (!hasStimulus && !isFlying && !bs.groomingPause) {
+              // Curiosity burst: abrupt speed/direction change (investigative)
+              bs.nextCuriosityIn -= delta;
+              if (bs.nextCuriosityIn <= 0 && bs.curiosityBurstTimer <= 0) {
+                bs.curiosityBurstTimer = 0.6 + Math.random() * 0.8;
+                bs.nextCuriosityIn = 12 + Math.random() * 20;
+                // Sharp random turn
+                bs.saccadeTargetYaw = flyModelRef.current.rotation.y + (Math.random() - 0.5) * Math.PI * 1.4;
+                bs.saccadeProgress = 0;
+                bs.saccadeDuration = 0.03 + Math.random() * 0.02;
+                bs.saccadePhase = 'saccading';
+                bs.levySpeed = 0.018 + Math.random() * 0.010; // faster burst
+                bs.levyStepLength = 0.15 + Math.random() * 0.25;
+              }
+              if (bs.curiosityBurstTimer > 0) bs.curiosityBurstTimer -= delta;
+
+              // Pause & observe: full stop, slow antenna oscillation
+              bs.nextPauseObserveIn -= delta;
+              if (bs.nextPauseObserveIn <= 0 && bs.pauseObserveTimer <= 0) {
+                bs.pauseObserveTimer = 1.2 + Math.random() * 2.0;
+                bs.nextPauseObserveIn = 18 + Math.random() * 28;
+              }
+
+              // Wing buzz: body vibrates as if warming up wings
+              bs.nextWingBuzzIn -= delta;
+              if (bs.nextWingBuzzIn <= 0 && bs.wingBuzzTimer <= 0) {
+                bs.wingBuzzTimer = 0.3 + Math.random() * 0.5;
+                bs.nextWingBuzzIn = 10 + Math.random() * 18;
+              }
+            } else {
+              // Clear spontaneous states if stimulus takes over
+              bs.pauseObserveTimer = 0;
+              bs.wingBuzzTimer = 0;
+            }
+
             // ── B. Grooming / Rest Pause Bouts ───────────────────────────────────────
             // Fly pauses to clean antennae/wings every ~10-25s (lab-measured interval)
             if (!bs.groomingPause) {
@@ -1590,6 +1640,18 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
               }
               // During grooming: no translation, tiny body micro-oscillation only
               flyModelRef.current.rotation.z = Math.sin(time * 12) * 0.018;
+              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            } else if (bs.pauseObserveTimer > 0 && !hasStimulus && !isFlying) {
+              // Pause & observe: full stop, slow head-scan oscillation
+              bs.pauseObserveTimer -= delta;
+              flyModelRef.current.rotation.y += Math.sin(time * 1.8) * 0.006; // slow scan
+              flyModelRef.current.rotation.z = Math.sin(time * 2.2) * 0.012;
+              setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
+            } else if (bs.wingBuzzTimer > 0 && !hasStimulus && !isFlying) {
+              // Wing buzz: body vibrates rapidly, stays in place
+              bs.wingBuzzTimer -= delta;
+              flyModelRef.current.rotation.z = Math.sin(time * 45) * 0.04; // rapid wing flutter
+              flyModelRef.current.position.y += Math.sin(time * 40) * 0.0008;
               setFlyHeadingAngle(Math.round((flyModelRef.current.rotation.y * 180 / Math.PI + 360) % 360));
             } else if (isFlying) {
               // ── C. FLIGHT MODE — smooth directional control (aerodynamics require it) ──

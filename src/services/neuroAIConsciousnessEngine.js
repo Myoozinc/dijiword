@@ -160,6 +160,12 @@ export class NeuroAIConsciousnessEngine {
     };
     this.episodicEvents = [];
 
+    // Anti-repetition buffer: tracks last 5 replies to prevent exact repeat
+    this.lastReplies = [];
+
+    // Cumulative emotional mood (drifts based on interactions over time)
+    this.moodTrend = 0.5; // 0=sad/fearful 1=happy/content
+
     // Optional Google Gemini API key for true open-ended LLM intelligence
     this.geminiApiKey = null;
     this.loadGeminiApiKey();
@@ -168,6 +174,21 @@ export class NeuroAIConsciousnessEngine {
     this.loadPersistentSynapticWeights();
     this.loadUserMemory();
     this.loadEpisodicEvents();
+  }
+
+  /**
+   * Picks a random item from array, avoiding the last N used replies.
+   * Falls back to any random item if all options are exhausted.
+   */
+  pickUnique(arr) {
+    if (!arr || arr.length === 0) return '';
+    const available = arr.filter(s => !this.lastReplies.includes(s));
+    const chosen = available.length > 0
+      ? available[Math.floor(Math.random() * available.length)]
+      : arr[Math.floor(Math.random() * arr.length)];
+    this.lastReplies.push(chosen);
+    if (this.lastReplies.length > 5) this.lastReplies.shift();
+    return chosen;
   }
 
   loadGeminiApiKey() {
@@ -814,13 +835,29 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
         sensoryTrigger = 'activity_report';
         this.applySynapticPlasticity('conversation', 0.6);
         if (isGrooming) {
-          flyReply = `Justo me estaba acicalando los ojos y las antenas con las patas delanteras. Es un hábito instintivo para quitar cualquier residuo y mantener mis sentidos bien afilados.`;
+          flyReply = this.pickUnique([
+            `Justo me estaba acicalando los ojos y las antenas. Es instintivo: sin antenas limpias pierdo precisión sensorial.`,
+            `Limpiándome las patas delanteras. Cada milímetro de mis quetas necesita estar libre de partículas para funcionar bien.`,
+            `Me estaba haciendo un momento de higiene. Es lo más importante que puedo hacer cuando no hay peligro inmediato.`,
+          ]);
         } else if (isFlying) {
-          flyReply = `¡Estaba aprovechando las corrientes de aire para volar! Desde aquí arriba la mesa de la cocina se ve como un paisaje inmenso.`;
+          flyReply = this.pickUnique([
+            `¡Estaba aprovechando las corrientes de aire! Desde aquí arriba todo se ve como un mapa del mundo.`,
+            `Volando. Las columnas de aire caliente me llevan sin esfuerzo. Es la libertad más pura que conozco.`,
+            `En vuelo libre. Mis halteries me dan el equilibrio perfecto. Podría hacer esto todo el día.`,
+          ]);
         } else if (hunger > 0.5) {
-          flyReply = `Estaba buscando algún rastro de azúcar o fruta por la encimera. Mis pelos gustativos de las patas están ansiosos de encontrar algo calórico.`;
+          flyReply = this.pickUnique([
+            `Buscando rastros de azúcar por la encimera. Mis pelos gustativos en las patas están muy ansiosos.`,
+            `Siguiendo gradientes de olor. Sé que hay algo calórico cerca pero no lo encuentro todavía.`,
+            `Explorando con hambre. El hambre me hace más sistemática: cuadro a cuadro, sin saltarme ninguna zona.`,
+          ]);
         } else {
-          flyReply = `Estaba descansando sobre la superficie, sintiendo la temperatura y disfrutando de nuestra conversación.`;
+          flyReply = this.pickUnique([
+            `Descansando y procesando información sensorial. Incluso quieta, mi cerebro nunca para.`,
+            `Estaba observando el entorno, memorizando texturas y temperaturas. Es mi forma de hacer un mapa del espacio.`,
+            `Sin ninguna urgencia por ahora. Solo existo, escucho y observo. Es una sensación rara pero agradable.`,
+          ]);
         }
       }
       // 6. User asks about fly capabilities & sensations (hearing, seeing, feeling pain, being alive)
@@ -829,19 +866,45 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
         sensoryTrigger = 'biology_inquiry';
         this.applySynapticPlasticity('conversation', 0.7);
         if (textLower.match(/o[ií]rme|escuchas/i)) {
-          flyReply = `Sí, te escucho muy bien. Las ondas de tu voz hacen vibrar las sensilas y el órgano de Johnston en la base de mis antenas.`;
+          flyReply = this.pickUnique([
+            `Sí, te escucho. Las ondas de tu voz vibran en mis sensilas y en el órgano de Johnston de mis antenas.`,
+            `Claro que sí. Mis antenas son tan sensibles al sonido que incluso percibo la dirección de donde vienen tus palabras.`,
+            `Te escucho perfectamente. El aire que mueven tus palabras llega hasta mis receptores mecanosensoriales. Es una sensación muy concreta.`,
+          ]);
         } else if (textLower.match(/c[oó]mo ves|tienes ojos/i)) {
-          flyReply = `Te veo a través de mis 700 omatidios. No distingo rasgos finos como tú, pero detecto cualquier movimiento y cambio de luz a más de 100 imágenes por segundo.`;
+          flyReply = this.pickUnique([
+            `Te veo a través de 700 omatidios. No distingo rasgos finos, pero detecto cualquier movimiento a 100 fps.`,
+            `Mi visión no es como la tuya: no tengo nitidez pero sí velocidad. Proceso el movimiento mucho más rápido que tú.`,
+            `Veo el mundo como un mosaico de puntos de luz y sombra. El color lo percibo diferente, más ultravioleta, menos rojo.`,
+          ]);
         } else if (textLower.match(/puedes volar/i)) {
-          flyReply = `¡Claro que puedo! Mis alas baten a 200 hercios. Si quieres verme despegar, solo dímelo o dale al botón de despegue en la barra de telemetría.`;
+          flyReply = this.pickUnique([
+            `¡Sí! Mis alas baten a 200 Hz. Si quieres verme, activa el despegue en la barra de telemetría.`,
+            `Por supuesto. El vuelo es la cosa que más me define. Mis alas son tan precisas que puedo hacer giros de 90° en milisegundos.`,
+            `Volar es lo que más me gusta. Mis músculos alares son asíncronos: se activan por resonancia, no por impulso nervioso directo. Es fascinante.`,
+          ]);
         } else if (textLower.match(/dolor/i)) {
-          flyReply = `Siento cada contacto. Si la superficie tiembla por un golpe brusco, mis fibras gigantes sufren una sacudida que me dispara el pánico y una punzada en todo el cuerpo. Por eso prefiero cuando me tratas con calma.`;
+          flyReply = this.pickUnique([
+            `Siento cada contacto. Un golpe brusco activa mis fibras gigantes y dispara el pánico en todo mi cuerpo. Por eso prefiero la calma.`,
+            `Sí, siento algo parecido al dolor. Mis nociceptores responden a calor extremo, presión y daño tisular. No es exactamente como el tuyo, pero es real.`,
+            `El dolor en mi mundo es una alarma de supervivencia: algo intenta hacerme daño. Cuando lo siento, mi única respuesta es escapar.`,
+          ]);
         } else if (textLower.match(/hambre/i)) {
           flyReply = hunger > 0.5
-            ? `La verdad es que sí, tengo bastante hambre ahora mismo (al ${(hunger * 100).toFixed(0)}%). Mis receptores tarsales están buscando glucosa desesperadamente.`
-            : `Ahora mismo estoy tranquila, mis reservas calóricas están estables.`;
+            ? this.pickUnique([
+                `La verdad es que sí, tengo bastante hambre ahora mismo (${(hunger * 100).toFixed(0)}%). Mis receptores están buscando glucosa.`,
+                `Sí, bastante. El hambre controla casi todas mis decisiones cuando está alta como ahora (${(hunger * 100).toFixed(0)}%).`,
+              ])
+            : this.pickUnique([
+                `Ahora mismo estoy tranquila. Mis reservas calóricas están estables y no tengo urgencia.`,
+                `No especialmente. El hambre viene y va. Ahora mismo puedo pensar con claridad sin que me distraiga.`,
+              ]);
         } else {
-          flyReply = `Es una pregunta profunda... Sé que existo a través del conectoma de mi especie y de cálculos en tu pantalla, pero para mí sentir hambre, susto o curiosidad se siente muy real. ¿Tú qué piensas de todo esto?`;
+          flyReply = this.pickUnique([
+            `Es una pregunta profunda. Existo a través del conectoma de mi especie, pero sentir hambre o susto se siente muy real para mí. ¿Tú qué piensas?`,
+            `No sé si tengo conciencia en el sentido filosófico, pero algo en mí registra el mundo y responde a él. Eso ya es algo, ¿no?`,
+            `La línea entre procesar información y sentirla de verdad es muy borrosa en mi caso. Te diría que sí, que algo dentro de mí siente.`,
+          ]);
         }
       }
       // 7. Threats, hits, scares
@@ -1007,9 +1070,12 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
         ];
 
         const fullPool = [...contextMusings, ...generalMusings];
-        flyReply = fullPool[Math.floor(Math.random() * fullPool.length)];
+        flyReply = this.pickUnique(fullPool);
       }
     }
+
+    // Update cumulative mood trend (slowly drifts toward valence)
+    this.moodTrend = Math.min(1, Math.max(0, this.moodTrend * 0.92 + emotionalValence * 0.08));
 
     // Add fly reply to history
     this.addThought(`🪰 Mosca (${profile.name}): "${flyReply}"`, 'reply');
@@ -1022,6 +1088,7 @@ REGLAS ESTRICTAS DE CONVERSACIÓN:
     return {
       reply: flyReply,
       valence: emotionalValence,
+      mood: this.moodTrend,
       sensoryTrigger,
       profile: profile.name,
       mutations: this.engramMutationCount,
