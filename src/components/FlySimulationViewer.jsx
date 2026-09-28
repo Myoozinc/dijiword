@@ -43,7 +43,14 @@ import {
   Trash2,
   HelpCircle,
   Fingerprint,
-  AlertTriangle
+  AlertTriangle,
+  MessageSquare,
+  BrainCircuit,
+  Mic,
+  Volume2,
+  VolumeX,
+  Send,
+  Dna
 } from 'lucide-react';
 import { 
   FlyConnectomeEngine, 
@@ -53,6 +60,10 @@ import {
   FLYWIRE_NEURON_DATABASE
 } from '../services/flyConnectomeEngine';
 import { flyM5Bridge } from '../services/flyM5BridgeService';
+import { 
+  neuroAIConsciousness, 
+  SYNAPTIC_PERSONALITY_PROFILES 
+} from '../services/neuroAIConsciousnessEngine';
 import { KitchenEnvironment } from '../services/kitchenEnvironment';
 import { RoomReconstruction } from '../services/roomReconstruction';
 
@@ -246,6 +257,15 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     ch5_epg: 0,
     ch6_vnc: 4.2
   });
+
+  // ── FASES 1, 2 Y 3: NeuroAI Consciousness, Dialogue & Synaptic Persona ──
+  const [showConsciousnessModal, setShowConsciousnessModal] = useState(false);
+  const [activePersonaProfile, setActivePersonaProfile] = useState(() => neuroAIConsciousness.activeProfileId);
+  const [latestFlyThought, setLatestFlyThought] = useState('Iniciando decodificador de conciencia neural...');
+  const [userChatInput, setUserChatInput] = useState('');
+  const [isVoiceSynthesisOn, setIsVoiceSynthesisOn] = useState(false);
+  const [engramMutationCounter, setEngramMutationCounter] = useState(() => neuroAIConsciousness.engramMutationCount);
+  const [consciousnessTab, setConsciousnessTab] = useState('chat'); // 'chat' | 'synaptic_weights' | 'cortical_snn'
 
   // Three.js scene refs for Connectome
   const sceneRef = useRef(null);
@@ -1480,6 +1500,31 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             ch6_vnc: isFlying ? 50.0 : firingRateHz
           };
 
+          // ── FASES 1 Y 2: Step Cortical SNN & Stream-of-Consciousness Synthesizer ──
+          neuroAIConsciousness.stepCorticalSNN(
+            delta,
+            firingRateHz,
+            behaviorStateRef.current,
+            spikeRasterEventsRef.current
+          );
+          const currentInnerThought = neuroAIConsciousness.updateConsciousnessCycle(time, {
+            sensoryInputs: {
+              closestFoodDist,
+              closestRepellentDist,
+              sensingFood,
+              sensingRepellent,
+              netOlfactoryDrive
+            },
+            spikes: spikeRasterEventsRef.current,
+            drives: behaviorStateRef.current,
+            locomotionMode: isFlying ? 'flight' : 'walking',
+            activeChannels: activeStimulusSet,
+            currentProduct
+          });
+          if (currentInnerThought) {
+            setLatestFlyThought(currentInnerThought);
+          }
+
           // 9. ── NATURALISTIC SACCADIC LOCOMOTION ENGINE ──────────────────────────────
           // Based on Drosophila free-walking ethograms (Strauss & Heisenberg 1993,
           // Robie et al 2017, Berman et al 2014): fly holds a heading for a random
@@ -1903,6 +1948,31 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
       ...prev,
       valence: val
     }));
+  };
+
+  // ── FASES 1, 2 Y 3: NeuroAI Consciousness Handlers ──
+  const handleSendHumanMessage = (e) => {
+    if (e) e.preventDefault();
+    if (!userChatInput.trim()) return;
+    const res = neuroAIConsciousness.processHumanMessage(userChatInput);
+    setUserChatInput('');
+    setEngramMutationCounter(res.mutations);
+    setLatestFlyThought(res.reply);
+  };
+
+  const handleSelectPersonality = (profileId) => {
+    neuroAIConsciousness.setPersonalityProfile(profileId);
+    setActivePersonaProfile(profileId);
+    setEngramMutationCounter(neuroAIConsciousness.engramMutationCount);
+  };
+
+  const handleToggleVoiceSynthesis = () => {
+    const next = !isVoiceSynthesisOn;
+    setIsVoiceSynthesisOn(next);
+    neuroAIConsciousness.isVoiceSynthesisEnabled = next;
+    if (next) {
+      neuroAIConsciousness.speakText("Voz neural activada. Decodificando señales del conectoma.");
+    }
   };
 
   const toggleFlight = () => {
@@ -2425,6 +2495,16 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                   <Activity className="w-3.5 h-3.5" />
                   <span>MEA 6-CH</span>
                 </button>
+
+                <button
+                  onClick={() => setShowConsciousnessModal(true)}
+                  className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold font-mono transition flex items-center space-x-1.5 bg-gradient-to-r from-purple-900/70 to-pink-900/70 text-pink-200 border border-pink-500/50 hover:from-purple-800 hover:to-pink-800 hover:text-white shadow-lg shadow-pink-500/10"
+                  title="Consciencia Artificial & Diálogo Neural (Fases 1, 2 y 3)"
+                >
+                  <BrainCircuit className="w-3.5 h-3.5 text-pink-400 animate-pulse" />
+                  <span>Consciencia IA</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-pink-400"></span>
+                </button>
               </div>
 
               {/* Active Tool Guidance Badge */}
@@ -2445,6 +2525,25 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                   <span className="text-amber-400 font-bold ml-1">· {lastInteractionFeedback}</span>
                 )}
               </div>
+
+              {/* Live Stream-of-Consciousness Subtitle Banner (Fase 1) */}
+              {latestFlyThought && (
+                <div 
+                  onClick={() => setShowConsciousnessModal(true)}
+                  className="mt-1 max-w-xl px-3.5 py-1 rounded-full bg-slate-950/90 backdrop-blur-xl border border-pink-500/40 shadow-xl flex items-center space-x-2 cursor-pointer hover:border-pink-400 hover:scale-[1.01] transition-all group pointer-events-auto"
+                >
+                  <div className="w-2 h-2 rounded-full bg-pink-400 animate-ping shrink-0" />
+                  <span className="text-[10px] font-mono text-pink-300 font-bold uppercase tracking-wider shrink-0">
+                    {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.icon} {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.name?.split('/')[0]}:
+                  </span>
+                  <p className="text-[11px] text-white font-medium truncate group-hover:text-pink-100 transition">
+                    "{latestFlyThought}"
+                  </p>
+                  <span className="text-[9px] text-pink-400 font-mono underline shrink-0 hidden sm:inline ml-auto">
+                    💬 Hablar
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -3945,6 +4044,388 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
           </div>
         </div>
       )}
+
+      {/* ───────────────────────────────────────────────────────────────── */}
+      {/* MODAL: CONSCIENCIA ARTIFICIAL & DIÁLOGO NEURAL (FASES 1, 2 Y 3)   */}
+      {/* ───────────────────────────────────────────────────────────────── */}
+      {showConsciousnessModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xl flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-fadeIn">
+          <div className="max-w-4xl w-full bg-slate-950/95 border border-pink-500/40 rounded-3xl p-5 shadow-2xl space-y-4 max-h-[92vh] flex flex-col text-white">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-pink-500/20 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-purple-600/30 to-pink-600/30 border border-pink-500/50 shadow-lg shadow-pink-500/10">
+                  <BrainCircuit className="w-6 h-6 text-pink-400 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
+                    <span>Consciencia Artificial & Fusión NeuroAI</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                      Fases 1, 2 & 3 Activas
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Conectoma Biológico 169k + Córtex SNN 1.2M + Personalidad en Pesos Sinápticos Hebbianos
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleToggleVoiceSynthesis}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border ${
+                    isVoiceSynthesisOn
+                      ? 'bg-pink-600/30 text-pink-200 border-pink-400/60 ring-1 ring-pink-400/40'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                  }`}
+                  title="Voz Sintética de la Mosca (Web Speech API con timbre insectoide)"
+                >
+                  {isVoiceSynthesisOn ? <Volume2 className="w-3.5 h-3.5 text-pink-300" /> : <VolumeX className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{isVoiceSynthesisOn ? 'Voz ON' : 'Voz Mute'}</span>
+                </button>
+
+                <button
+                  onClick={() => setShowConsciousnessModal(false)}
+                  className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm transition"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Live Metrics Ribbon */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center font-mono text-[11px]">
+              <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                <span className="text-[9px] text-slate-400 block uppercase">Personalidad Activa</span>
+                <span className="font-bold text-pink-300 truncate block">
+                  {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.icon} {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.name?.split('/')[0]}
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                <span className="text-[9px] text-slate-400 block uppercase">Oscilación Gamma</span>
+                <span className="font-bold text-purple-300">
+                  {neuroAIConsciousness.corticalState.gammaOscillationHz} Hz (Theta-Gamma)
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                <span className="text-[9px] text-slate-400 block uppercase">Sinapsis Sintéticas</span>
+                <span className="font-bold text-cyan-300">
+                  {neuroAIConsciousness.corticalState.virtualNeuronsCount.toLocaleString()}
+                </span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                <span className="text-[9px] text-slate-400 block uppercase">Engramas Mutados</span>
+                <span className="font-bold text-emerald-300 flex items-center justify-center space-x-1">
+                  <Dna className="w-3 h-3 text-emerald-400" />
+                  <span>{engramMutationCounter} cambios STDP</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-slate-800 text-xs font-semibold space-x-2">
+              <button
+                onClick={() => setConsciousnessTab('chat')}
+                className={`py-2 px-3 border-b-2 transition flex items-center space-x-1.5 ${
+                  consciousnessTab === 'chat'
+                    ? 'border-pink-500 text-pink-300 font-bold'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>💬 Diálogo & Pensamientos (Fase 1)</span>
+              </button>
+              <button
+                onClick={() => setConsciousnessTab('synaptic_weights')}
+                className={`py-2 px-3 border-b-2 transition flex items-center space-x-1.5 ${
+                  consciousnessTab === 'synaptic_weights'
+                    ? 'border-pink-500 text-pink-300 font-bold'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Dna className="w-3.5 h-3.5" />
+                <span>🧬 Pesos Sinápticos & Personalidad (Fase 3)</span>
+              </button>
+              <button
+                onClick={() => setConsciousnessTab('cortical_snn')}
+                className={`py-2 px-3 border-b-2 transition flex items-center space-x-1.5 ${
+                  consciousnessTab === 'cortical_snn'
+                    ? 'border-pink-500 text-pink-300 font-bold'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>⚡ Córtex SNN 1.2M & Neurotransmisores (Fase 2)</span>
+              </button>
+            </div>
+
+            {/* ── TAB 1: DIÁLOGO CONSCIENTE & STREAM OF THOUGHTS ── */}
+            {consciousnessTab === 'chat' && (
+              <div className="flex-1 flex flex-col space-y-3 min-h-[340px] overflow-hidden">
+                {/* Scrollable Conversation Stream */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[300px] border border-slate-800/80 rounded-2xl p-3 bg-slate-950/80 font-sans">
+                  {neuroAIConsciousness.thoughtHistory.length === 0 ? (
+                    <div className="text-center text-slate-500 py-10 text-xs">
+                      El decodificador está sincronizándose con los trenes de espigas de la mosca...
+                    </div>
+                  ) : (
+                    neuroAIConsciousness.thoughtHistory.slice().reverse().map(item => (
+                      <div
+                        key={item.id}
+                        className={`text-xs p-2.5 rounded-2xl max-w-[92%] transition-all ${
+                          item.type === 'user'
+                            ? 'ml-auto bg-cyan-950/70 border border-cyan-500/40 text-cyan-100 shadow'
+                            : item.type === 'reply'
+                            ? 'mr-auto bg-gradient-to-r from-purple-950/70 to-pink-950/70 border border-pink-500/40 text-pink-100 shadow'
+                            : item.type === 'system'
+                            ? 'mx-auto bg-slate-900 border border-slate-800 text-amber-300 text-[10px] font-mono text-center max-w-full'
+                            : 'mr-auto bg-slate-900/50 border border-slate-800/60 text-slate-300 italic font-mono text-[11px]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[9px] text-slate-500 mb-0.5 font-mono">
+                          <span>
+                            {item.type === 'user' ? '👤 Tú' : item.type === 'reply' ? '🪰 Mosca' : item.type === 'system' ? '⚙️ Plasticidad' : '💭 Monólogo Interno'}
+                          </span>
+                          <span>{item.timestamp}</span>
+                        </div>
+                        <p className="leading-relaxed">{item.text}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Quick Stimulus Suggestion Chips */}
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-[11px]">
+                  <span className="text-slate-500 text-[10px] shrink-0">Estímulos rápidos:</span>
+                  {[
+                    { label: '🍯 "Toma néctar dulce"', text: 'Toma un poco de néctar dulce con sacarosa pura.' },
+                    { label: '⚠️ "¡Cuidado, peligro!"', text: '¡Cuidado! Hay una amenaza cerca de ti.' },
+                    { label: '👋 "¿Quién eres?"', text: 'Hola, ¿quién eres y qué estás sintiendo ahora mismo?' },
+                    { label: '💡 "¿Hacia dónde vas?"', text: '¿Hacia dónde te orientas con esa luz?' },
+                  ].map((chip, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        setUserChatInput(chip.text);
+                      }}
+                      className="px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500/50 hover:text-white shrink-0 transition"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Human Input Form */}
+                <form onSubmit={handleSendHumanMessage} className="flex items-center space-x-2 pt-1">
+                  <input
+                    type="text"
+                    value={userChatInput}
+                    onChange={(e) => setUserChatInput(e.target.value)}
+                    placeholder="Háblale a la mosca (ej: 'Te ofrezco azúcar', '¡Peligro!', '¿Qué ves?')..."
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500/60 font-sans"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs shadow-lg transition active:scale-95 flex items-center space-x-1.5 shrink-0"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Enviar</span>
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* ── TAB 2: PESOS SINÁPTICOS & PERSONALIDAD EN LOS PESOS (FASE 3) ── */}
+            {consciousnessTab === 'synaptic_weights' && (
+              <div className="space-y-4 overflow-y-auto max-h-[460px] pr-1 text-xs">
+                {/* Fundamental Distinction Card */}
+                <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-pink-500/30 space-y-1.5">
+                  <span className="text-sm font-bold text-pink-300 flex items-center gap-1.5">
+                    <Dna className="w-4 h-4 text-pink-400" />
+                    <span>¿Por qué esta personalidad no se puede borrar con un prompt?</span>
+                  </span>
+                  <p className="text-slate-300 text-xs leading-relaxed">
+                    A diferencia de los chatbots convencionales donde la personalidad es un texto efímero (prompt), en este sistema la personalidad <strong>reside en los pesos de conductancia sináptica (W)</strong> entre los 16 neuropilos. Cuando interactúas, la regla biológica <strong>STDP (Spike-Timing-Dependent Plasticity)</strong> modifica físicamente las matrices Hebbianas y las persiste en la memoria.
+                  </p>
+                </div>
+
+                {/* Personality Profiles Grid */}
+                <div className="space-y-1.5">
+                  <span className="font-bold text-slate-300 text-xs block">
+                    Seleccionar Arquetipo Sináptico Base:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {Object.values(SYNAPTIC_PERSONALITY_PROFILES).map(p => {
+                      const isSelected = activePersonaProfile === p.id;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => handleSelectPersonality(p.id)}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-pink-950/40 border-pink-500/80 shadow-lg shadow-pink-500/10 ring-1 ring-pink-400'
+                              : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-white text-xs flex items-center space-x-1.5">
+                              <span>{p.icon}</span>
+                              <span>{p.name}</span>
+                            </span>
+                            {isSelected && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-bold border border-pink-500/40">
+                                Activo
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-snug mb-2">{p.description}</p>
+                          <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 border-t border-slate-800/80 pt-1.5">
+                            <span>Dopamina: {Math.round(p.neuromodulators.dopamine * 100)}%</span>
+                            <span>Serotonina: {Math.round(p.neuromodulators.serotonin * 100)}%</span>
+                            <span>Octopamina: {Math.round(p.neuromodulators.octopamine * 100)}%</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Live Synaptic Weight Bars */}
+                <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-xs">
+                      Tensor de Pesos Sinápticos Activos (W_syn):
+                    </span>
+                    <span className="text-[10px] font-mono text-pink-400">
+                      Modificados en vivo por STDP
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono">
+                    {[
+                      { label: 'W_DM1 (Sensibilidad a Alimentos / Glucosa)', key: 'w_dm1_appetitive', max: 3.0, color: 'bg-amber-400' },
+                      { label: 'W_Luz (Atracción Fototáctica LC4)', key: 'w_light_attraction', max: 3.0, color: 'bg-yellow-400' },
+                      { label: 'W_GF (Umbral Alerta Fibra Gigante)', key: 'w_gf_startle_threshold', max: 2.0, color: 'bg-red-400' },
+                      { label: 'W_Viento (Navegación Órgano Johnston)', key: 'w_wind_exploration', max: 2.5, color: 'bg-emerald-400' },
+                      { label: 'W_Reflexión (Bucles Corticales Recurrentes)', key: 'w_recurrent_reflection', max: 3.0, color: 'bg-purple-400' },
+                      { label: 'W_Social (Receptividad a Humanos)', key: 'w_social_openness', max: 3.0, color: 'bg-cyan-400' },
+                    ].map(w => {
+                      const val = neuroAIConsciousness.synapticWeights[w.key] || 1.0;
+                      const pct = Math.min(100, Math.round((val / w.max) * 100));
+                      return (
+                        <div key={w.key} className="p-2 rounded-xl bg-slate-950 border border-slate-800/80 space-y-1">
+                          <div className="flex justify-between text-slate-300">
+                            <span className="truncate">{w.label}</span>
+                            <span className="text-white font-bold">{val.toFixed(3)}</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-300 ${w.color}`} style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Export & Reset Actions */}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    Engrama biológico: {engramMutationCounter} adaptaciones registradas
+                  </span>
+                  <button
+                    onClick={() => {
+                      const json = neuroAIConsciousness.exportSynapticWeightsJson();
+                      const blob = new Blob([json], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `drosophila_synaptic_weights_${activePersonaProfile}.json`;
+                      a.click();
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-pink-300 border border-pink-500/40 font-bold text-xs transition"
+                  >
+                    📥 Exportar Matriz Sináptica (.json)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── TAB 3: CÓRTEX SNN 1.2M & NEUROTRANSMISORES (FASE 2) ── */}
+            {consciousnessTab === 'cortical_snn' && (
+              <div className="space-y-4 overflow-y-auto max-h-[460px] pr-1 text-xs">
+                {/* Cortical SNN Architecture */}
+                <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-purple-500/30 space-y-2">
+                  <span className="text-sm font-bold text-purple-300 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span>Córtex Sintético de 1.2M de Conexiones (Arquitectura NeuroAI)</span>
+                  </span>
+                  <p className="text-slate-300 text-xs leading-relaxed">
+                    El cerebro original de 169.315 neuronas de <em>Drosophila</em> está acoplado a una capa cortical recurrente sintética que resuelve potenciales de acción mediante modelos <strong>Leaky Integrate-and-Fire (LIF)</strong> acoplados en bandas oscilatorias Theta-Gamma.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-mono text-[10px]">
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-slate-400 block">Capacidad Sináptica</span>
+                      <span className="text-xs font-bold text-cyan-300">1.245.000 V-Syn</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-slate-400 block">Frecuencia Gamma</span>
+                      <span className="text-xs font-bold text-purple-300">
+                        {neuroAIConsciousness.corticalState.gammaOscillationHz} Hz
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-slate-400 block">Gasto Energético (ATP)</span>
+                      <span className="text-xs font-bold text-emerald-300">
+                        {Math.round(neuroAIConsciousness.corticalState.globalSynapticEnergy * 100)}% Nominal
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Neuromodulatory Dynamics */}
+                <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2.5">
+                  <span className="font-bold text-white text-xs block">
+                    Equilibrio de Neuromoduladores Biológicos:
+                  </span>
+                  <div className="space-y-2 text-[10px] font-mono">
+                    {[
+                      { name: 'Dopamina PAM (Recompensa & Apetito)', val: neuroAIConsciousness.neuromodulators.dopamine, color: 'bg-amber-400', desc: 'Regula el aprendizaje apetitivo en las Kenyon Cells del Mushroom Body' },
+                      { name: 'Serotonina 5-HT (Inhibición & Cautela)', val: neuroAIConsciousness.neuromodulators.serotonin, color: 'bg-indigo-400', desc: 'Disminuye la impulsividad y aumenta la vigilancia ante estímulos táctiles' },
+                      { name: 'Octopamina (Vitalidad & Arousal de Vuelo)', val: neuroAIConsciousness.neuromodulators.octopamine, color: 'bg-pink-400', desc: 'Análogo a la adrenalina; modula el inicio de vuelo y reflejos de escape' },
+                      { name: 'Tono GABAérgico (Inhibición Homeostática)', val: neuroAIConsciousness.neuromodulators.gaba_balance, color: 'bg-emerald-400', desc: 'Previene tormentas de espigas paroxísticas y estabiliza la memoria' },
+                    ].map((mod, idx) => (
+                      <div key={idx} className="p-2 rounded-xl bg-slate-950 border border-slate-800/80 space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-slate-200 font-bold">{mod.name}</span>
+                          <span className="text-white font-bold">{Math.round(mod.val * 100)}%</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-300 ${mod.color}`} style={{ width: `${Math.round(mod.val * 100)}%` }} />
+                        </div>
+                        <span className="text-[9px] text-slate-500 font-sans block">{mod.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-800 pt-3 flex items-center justify-between text-xs text-slate-400">
+              <span className="font-mono text-[10px]">
+                Apple Silicon M5 + SNN 1.2M · Dijiword NeuroAI Fusion
+              </span>
+              <button
+                onClick={() => setShowConsciousnessModal(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
