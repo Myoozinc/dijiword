@@ -263,7 +263,11 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const [activePersonaProfile, setActivePersonaProfile] = useState(() => neuroAIConsciousness.activeProfileId);
   const [latestFlyThought, setLatestFlyThought] = useState('Iniciando decodificador de conciencia neural...');
   const [userChatInput, setUserChatInput] = useState('');
-  const [isVoiceSynthesisOn, setIsVoiceSynthesisOn] = useState(false);
+  const [isVoiceSynthesisOn, setIsVoiceSynthesisOn] = useState(true); // Voice ON by default
+  const [isListeningToMic, setIsListeningToMic] = useState(false);
+  const [micTranscript, setMicTranscript] = useState('');
+  const [isFlySpeaking, setIsFlySpeaking] = useState(false);
+  const speechRecognizerRef = useRef(null);
   const [engramMutationCounter, setEngramMutationCounter] = useState(() => neuroAIConsciousness.engramMutationCount);
   const [consciousnessTab, setConsciousnessTab] = useState('chat'); // 'chat' | 'synaptic_weights' | 'cortical_snn'
 
@@ -1950,14 +1954,67 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     }));
   };
 
-  // ── FASES 1, 2 Y 3: NeuroAI Consciousness Handlers ──
-  const handleSendHumanMessage = (e) => {
+  // ── FASES 1, 2 Y 3: NeuroAI Consciousness & Voice Handlers ──
+  useEffect(() => {
+    const unsub = neuroAIConsciousness.onSpeakingStateChange((speaking) => {
+      setIsFlySpeaking(speaking);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSendHumanMessage = (e, overrideText = null) => {
     if (e) e.preventDefault();
-    if (!userChatInput.trim()) return;
-    const res = neuroAIConsciousness.processHumanMessage(userChatInput);
+    const textToSend = (overrideText || userChatInput).trim();
+    if (!textToSend) return;
+    const res = neuroAIConsciousness.processHumanMessage(textToSend);
     setUserChatInput('');
+    setMicTranscript('');
     setEngramMutationCounter(res.mutations);
     setLatestFlyThought(res.reply);
+  };
+
+  const toggleMicListening = () => {
+    if (isListeningToMic) {
+      if (speechRecognizerRef.current) {
+        try { speechRecognizerRef.current.stop(); } catch { /* silent */ }
+      }
+      setIsListeningToMic(false);
+      return;
+    }
+
+    const recognizer = neuroAIConsciousness.createSpeechRecognizer({
+      onTranscript: (interim) => {
+        setMicTranscript(interim);
+        setUserChatInput(interim);
+      },
+      onFinalMessage: (finalText) => {
+        setIsListeningToMic(false);
+        setMicTranscript('');
+        if (finalText && finalText.trim()) {
+          handleSendHumanMessage(null, finalText);
+        }
+      },
+      onListeningState: (listening) => {
+        setIsListeningToMic(listening);
+        if (!listening) setMicTranscript('');
+      },
+      onError: (err) => {
+        console.warn('[Microphone] Error o permiso denegado:', err);
+        setIsListeningToMic(false);
+      }
+    });
+
+    if (recognizer) {
+      speechRecognizerRef.current = recognizer;
+      try {
+        recognizer.start();
+      } catch (e) {
+        console.warn('[Microphone] No se pudo iniciar el reconocedor:', e);
+        setIsListeningToMic(false);
+      }
+    } else {
+      alert('Tu navegador no soporta reconocimiento de voz nativo (Web Speech API). Por favor abre la app en Google Chrome para hablar por micrófono.');
+    }
   };
 
   const handleSelectPersonality = (profileId) => {
@@ -1972,6 +2029,11 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     neuroAIConsciousness.isVoiceSynthesisEnabled = next;
     if (next) {
       neuroAIConsciousness.speakText("Voz neural activada. Decodificando señales del conectoma.");
+    } else {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      setIsFlySpeaking(false);
     }
   };
 
@@ -2526,22 +2588,67 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                 )}
               </div>
 
-              {/* Live Stream-of-Consciousness Subtitle Banner (Fase 1) */}
+              {/* Live Stream-of-Consciousness Subtitle Banner & Mic Bar (Fase 1) */}
               {latestFlyThought && (
                 <div 
-                  onClick={() => setShowConsciousnessModal(true)}
-                  className="mt-1 max-w-xl px-3.5 py-1 rounded-full bg-slate-950/90 backdrop-blur-xl border border-pink-500/40 shadow-xl flex items-center space-x-2 cursor-pointer hover:border-pink-400 hover:scale-[1.01] transition-all group pointer-events-auto"
+                  className={`mt-1 max-w-2xl px-3.5 py-1.5 rounded-full bg-slate-950/92 backdrop-blur-xl border shadow-xl flex items-center space-x-2.5 transition-all pointer-events-auto ${
+                    isListeningToMic
+                      ? 'border-rose-400 ring-2 ring-rose-500/40 shadow-rose-500/20'
+                      : isFlySpeaking
+                      ? 'border-pink-400 ring-2 ring-pink-500/40 shadow-pink-500/20'
+                      : 'border-pink-500/40 hover:border-pink-400'
+                  }`}
                 >
-                  <div className="w-2 h-2 rounded-full bg-pink-400 animate-ping shrink-0" />
-                  <span className="text-[10px] font-mono text-pink-300 font-bold uppercase tracking-wider shrink-0">
-                    {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.icon} {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.name?.split('/')[0]}:
-                  </span>
-                  <p className="text-[11px] text-white font-medium truncate group-hover:text-pink-100 transition">
-                    "{latestFlyThought}"
-                  </p>
-                  <span className="text-[9px] text-pink-400 font-mono underline shrink-0 hidden sm:inline ml-auto">
-                    💬 Hablar
-                  </span>
+                  {/* Status Indicator */}
+                  {isListeningToMic ? (
+                    <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+                  ) : isFlySpeaking ? (
+                    <Volume2 className="w-3.5 h-3.5 text-pink-400 animate-bounce shrink-0" />
+                  ) : (
+                    <div className="w-2 h-2 rounded-full bg-pink-400 animate-ping shrink-0" />
+                  )}
+
+                  {/* Profile / Content */}
+                  <div 
+                    onClick={() => setShowConsciousnessModal(true)}
+                    className="flex items-center space-x-2 truncate cursor-pointer flex-1"
+                  >
+                    <span className="text-[10px] font-mono text-pink-300 font-bold uppercase tracking-wider shrink-0">
+                      {SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.icon} {isListeningToMic ? '🎙️ Escuchando' : isFlySpeaking ? '🔊 Respondiendo' : SYNAPTIC_PERSONALITY_PROFILES[activePersonaProfile]?.name?.split('/')[0]}:
+                    </span>
+                    <p className="text-[11px] text-white font-medium truncate">
+                      {isListeningToMic ? (micTranscript || 'Habla claro por tu micrófono...') : `"${latestFlyThought}"`}
+                    </p>
+                  </div>
+
+                  {/* Direct Microphone Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleMicListening();
+                    }}
+                    className={`p-1 px-2.5 rounded-full text-[10px] font-bold font-mono transition flex items-center space-x-1 shrink-0 ${
+                      isListeningToMic
+                        ? 'bg-rose-600 text-white animate-pulse'
+                        : 'bg-slate-900 hover:bg-slate-800 text-pink-300 border border-pink-500/40'
+                    }`}
+                    title={isListeningToMic ? "Detener y procesar voz" : "Hablar por micrófono con la mosca"}
+                  >
+                    <Mic className={`w-3 h-3 ${isListeningToMic ? 'animate-bounce text-white' : 'text-pink-300'}`} />
+                    <span>{isListeningToMic ? 'Parar' : 'Hablar'}</span>
+                  </button>
+
+                  {/* Voice Synthesis Toggle */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleVoiceSynthesis();
+                    }}
+                    className="p-1 rounded-full text-slate-400 hover:text-white transition shrink-0"
+                    title={isVoiceSynthesisOn ? "Voz activa (clic para silenciar)" : "Voz silenciada (clic para activar)"}
+                  >
+                    {isVoiceSynthesisOn ? <Volume2 className="w-3 h-3 text-pink-400" /> : <VolumeX className="w-3 h-3 text-slate-600" />}
+                  </button>
                 </div>
               )}
             </div>
@@ -4216,15 +4323,54 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                   ))}
                 </div>
 
-                {/* Human Input Form */}
+                {/* Live Mic or Voice State Indicators */}
+                {isListeningToMic && (
+                  <div className="flex items-center space-x-2 text-[11px] font-mono text-rose-300 bg-rose-950/60 border border-rose-500/50 px-3.5 py-2 rounded-2xl animate-pulse">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+                    <span className="font-bold">🎙️ Escuchando tu voz:</span>
+                    <span className="truncate italic text-white flex-1">"{micTranscript || 'Habla claro hacia tu micrófono...'}"</span>
+                    <button
+                      type="button"
+                      onClick={toggleMicListening}
+                      className="px-2 py-0.5 rounded-lg bg-rose-700 text-white font-bold text-[10px] shrink-0"
+                    >
+                      Terminar
+                    </button>
+                  </div>
+                )}
+
+                {isFlySpeaking && (
+                  <div className="flex items-center space-x-2 text-[11px] font-mono text-pink-300 bg-pink-950/60 border border-pink-500/50 px-3.5 py-2 rounded-2xl animate-pulse">
+                    <Volume2 className="w-4 h-4 text-pink-400 animate-bounce shrink-0" />
+                    <span className="font-bold">🔊 Mosca hablando audiblemente:</span>
+                    <span className="truncate text-pink-100 flex-1">Decodificando trenes de espigas al sintetizador de voz...</span>
+                  </div>
+                )}
+
+                {/* Human Input Form with Voice & Text */}
                 <form onSubmit={handleSendHumanMessage} className="flex items-center space-x-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={toggleMicListening}
+                    className={`px-3.5 py-2.5 rounded-2xl font-bold text-xs shadow-lg transition active:scale-95 flex items-center space-x-1.5 shrink-0 border ${
+                      isListeningToMic
+                        ? 'bg-rose-600 text-white border-rose-400 animate-pulse ring-2 ring-rose-400/50'
+                        : 'bg-slate-900 hover:bg-slate-800 text-pink-300 border-pink-500/40 hover:border-pink-400'
+                    }`}
+                    title={isListeningToMic ? "Detener y procesar voz" : "Hablar por micrófono con la mosca (Speech-to-Text)"}
+                  >
+                    <Mic className={`w-4 h-4 ${isListeningToMic ? 'animate-bounce text-white' : 'text-pink-400'}`} />
+                    <span className="hidden sm:inline">{isListeningToMic ? 'Escuchando...' : 'Hablar por Mic'}</span>
+                  </button>
+
                   <input
                     type="text"
                     value={userChatInput}
                     onChange={(e) => setUserChatInput(e.target.value)}
-                    placeholder="Háblale a la mosca (ej: 'Te ofrezco azúcar', '¡Peligro!', '¿Qué ves?')..."
+                    placeholder={isListeningToMic ? "Escuchando lo que dices..." : "O escribe un mensaje (ej: 'Te ofrezco azúcar', '¡Peligro!')..."}
                     className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500/60 font-sans"
                   />
+
                   <button
                     type="submit"
                     className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs shadow-lg transition active:scale-95 flex items-center space-x-1.5 shrink-0"

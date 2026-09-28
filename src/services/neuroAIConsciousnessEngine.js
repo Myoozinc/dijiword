@@ -143,7 +143,10 @@ export class NeuroAIConsciousnessEngine {
     this.thoughtHistory = [];
     this.lastThoughtTime = 0;
     this.thoughtIntervalSec = 3.5; // Natural thought cadence every 3-4s
-    this.isVoiceSynthesisEnabled = false;
+    this.isVoiceSynthesisEnabled = true; // Voice ON by default for audible dialogue
+    this.isSpeaking = false;
+    this.isListening = false;
+    this.speakingListeners = new Set();
     this.speechUtterance = null;
 
     // Load persistent synaptic weights from localStorage if existing
@@ -482,22 +485,112 @@ export class NeuroAIConsciousnessEngine {
     };
   }
 
+  onSpeakingStateChange(callback) {
+    this.speakingListeners.add(callback);
+    return () => this.speakingListeners.delete(callback);
+  }
+
+  notifySpeakingState(isSpeaking) {
+    this.isSpeaking = isSpeaking;
+    this.speakingListeners.forEach(cb => {
+      try { cb(isSpeaking); } catch { /* silent */ }
+    });
+  }
+
   /**
    * Web Speech API Vocalizer with custom insectoid pitch modulation
+   * and auto-selection of optimal Spanish voices
    */
-  speakText(text) {
+  speakText(text, onEnd) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'es-ES';
-      // High pitch and slightly fast cadence mimicking miniature organism
-      utterance.pitch = 1.35;
-      utterance.rate = 1.15;
+      // Distinct insectoid biological timbre: elevated pitch and lively tempo
+      utterance.pitch = 1.30;
+      utterance.rate = 1.10;
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        // Prefer natural Spanish voices (es-ES, es-MX, es-419)
+        const esVoice = voices.find(v => v.lang.startsWith('es') || v.lang.includes('ES') || v.lang.includes('MX'));
+        if (esVoice) {
+          utterance.voice = esVoice;
+        }
+      }
+
+      this.notifySpeakingState(true);
+
+      utterance.onend = () => {
+        this.notifySpeakingState(false);
+        if (onEnd) onEnd();
+      };
+
+      utterance.onerror = () => {
+        this.notifySpeakingState(false);
+      };
+
       window.speechSynthesis.speak(utterance);
-    } catch {
-      // Graceful fallback
+    } catch (err) {
+      console.warn('[NeuroAI] Error en síntesis de voz:', err);
+      this.notifySpeakingState(false);
     }
   }
+
+  /**
+   * Initializes Speech Recognition (Microphone listener)
+   * Captures human voice and returns transcripts in real time
+   */
+  createSpeechRecognizer({ onTranscript, onFinalMessage, onListeningState, onError }) {
+    if (typeof window === 'undefined') return null;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('[NeuroAI] SpeechRecognition no está disponible en este navegador.');
+      return null;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'es-ES';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      this.isListening = true;
+      if (onListeningState) onListeningState(true);
+    };
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      let final = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+      if (onTranscript) onTranscript(final || interim);
+      if (final && onFinalMessage) {
+        onFinalMessage(final);
+      }
+    };
+
+    recognition.onerror = (event) => {
+      this.isListening = false;
+      if (onListeningState) onListeningState(false);
+      if (onError) onError(event.error);
+    };
+
+    recognition.onend = () => {
+      this.isListening = false;
+      if (onListeningState) onListeningState(false);
+    };
+
+    return recognition;
+  }
+
 
   addThought(text, type = 'inner') {
     const item = {
