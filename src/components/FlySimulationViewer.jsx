@@ -96,8 +96,8 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const containerRef = useRef(null);
   const flyContainerRef = useRef(null);
 
-  // View state
-  const [viewMode, setViewMode] = useState('split'); // 'split' | 'connectome' | 'fly'
+  // View state (Default to clean, full-screen Fly 3D environment)
+  const [viewMode, setViewMode] = useState('fly'); // 'fly' | 'split' | 'connectome'
   const [isRunning, setIsRunning] = useState(true);
   const [firingRateHz, setFiringRateHz] = useState(4.2);
   // ── Multi-Sensory Modality Toggles (simultaneously active, like real Drosophila) ──
@@ -123,11 +123,13 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const [showDataModal, setShowDataModal] = useState(false);
   const [flyHeadingAngle, setFlyHeadingAngle] = useState(0);
 
-  // HUD Collapsibility & Immersive Mode State (Allows user to hide all clutter)
+  // HUD Collapsibility & Clean Dock State (Starts 100% clean and unobstructed)
   const [isImmersiveMode, setIsImmersiveMode] = useState(false);
-  const [isConnectomeHudCollapsed, setIsConnectomeHudCollapsed] = useState(false);
-  const [isOdorPaletteCollapsed, setIsOdorPaletteCollapsed] = useState(false);
-  const [isTelemetryCollapsed, setIsTelemetryCollapsed] = useState(false);
+  const [isConnectomeHudCollapsed, setIsConnectomeHudCollapsed] = useState(true);
+  const [isOdorPaletteCollapsed, setIsOdorPaletteCollapsed] = useState(true);
+  const [isTelemetryCollapsed, setIsTelemetryCollapsed] = useState(true);
+  const [activeFlyDockTab, setActiveFlyDockTab] = useState(null); // null | 'telemetry' | 'odors' | 'environment' | 'mea'
+  const [showSensoryCascade, setShowSensoryCascade] = useState(false); // Collapsed by default
   const [showArchitectureModal, setShowArchitectureModal] = useState(false);
 
   // Fly Scale & Proportions Control
@@ -189,7 +191,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const flyEyeCameraRef = useRef(null);
   const lastYawRef = useRef(0);
   const lastTelemetryTimeRef = useRef(0);
-  const [showEyeProjector, setShowEyeProjector] = useState(true);
+  const [showEyeProjector, setShowEyeProjector] = useState(false); // Default closed for clean view
   const [eyeVisionFilter, setEyeVisionFilter] = useState('ommatidia'); // 'ommatidia' | 'flow' | 'raw'
   const [isProjectorExpanded, setIsProjectorExpanded] = useState(false);
   const [visualTelemetry, setVisualTelemetry] = useState({
@@ -246,8 +248,8 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const [membranePotentialVm, setMembranePotentialVm] = useState(-65.0);
   const [injectedCurrentActive, setInjectedCurrentActive] = useState(false);
 
-  // 6-Channel Electrophysiological Spike Raster
-  const [showSpikeRasterHUD, setShowSpikeRasterHUD] = useState(true);
+  // 6-Channel Electrophysiological Spike Raster (Closed by default to keep viewport clear)
+  const [showSpikeRasterHUD, setShowSpikeRasterHUD] = useState(false);
   const spikeCanvasRef = useRef(null);
   const spikeRasterEventsRef = useRef({
     ch1_dm1: false,
@@ -785,6 +787,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
         lastTapEventRef.current = { position: hitPoint.clone(), time: Date.now() };
         setLastInteractionFeedback("💥 Golpe en superficie: Reflejo Giant Fiber de escape activado");
         spikeRasterEventsRef.current.ch4_gf = true;
+        neuroAIConsciousness.recordEpisodicEvent('tap', 'Diste un golpe brusco cerca en la superficie');
       } else if (tool === 'food') {
         const newItem = {
           id: `food_${Date.now()}`,
@@ -796,6 +799,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
         };
         setPlacedStimuli(prev => [...prev, newItem]);
         setLastInteractionFeedback("🍯 Cebo dulce colocado (+ Valencia)");
+        neuroAIConsciousness.recordEpisodicEvent('food', 'Colocaste una gota de néctar dulce');
       } else if (tool === 'repellent') {
         const newItem = {
           id: `rep_${Date.now()}`,
@@ -807,6 +811,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
         };
         setPlacedStimuli(prev => [...prev, newItem]);
         setLastInteractionFeedback("🧄 Repelente colocado (- Valencia)");
+        neuroAIConsciousness.recordEpisodicEvent('repellent', 'Colocaste repelente nociceptivo');
       } else if (tool === 'laser') {
         setLaserActive(true);
         if (laserDotMeshRef.current) {
@@ -815,6 +820,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
           laserDotMeshRef.current.position.y += 0.01;
         }
         laserTargetPosRef.current.copy(hitPoint);
+        neuroAIConsciousness.recordEpisodicEvent('laser', 'Apuntaste un puntero láser brillante');
       }
     };
 
@@ -909,7 +915,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
 
   // 2.12 Live Electrophysiological Spike Raster Canvas Renderer (MEA 6-CH)
   useEffect(() => {
-    if (!showSpikeRasterHUD) return;
+    if (!showSpikeRasterHUD && activeFlyDockTab !== 'mea') return;
     const canvas = spikeCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -985,7 +991,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     return () => {
       cancelAnimationFrame(rasterId);
     };
-  }, [showSpikeRasterHUD]);
+  }, [showSpikeRasterHUD, activeFlyDockTab]);
 
   // 2.15 Dynamic Kitchen Boundary Mode (Terrarium vs Open Kitchen Room)
   useEffect(() => {
@@ -1966,7 +1972,18 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     if (e) e.preventDefault();
     const textToSend = (overrideText || userChatInput).trim();
     if (!textToSend) return;
-    const res = neuroAIConsciousness.processHumanMessage(textToSend);
+    const context = {
+      hungerDrive: behaviorStateRef.current?.hungerDrive ?? 0.5,
+      aversiveDrive: behaviorStateRef.current?.aversiveDrive ?? 0.1,
+      fatigueDrive: behaviorStateRef.current?.fatigueDrive ?? 0.2,
+      explorationDrive: behaviorStateRef.current?.explorationDrive ?? 0.5,
+      groomingPause: behaviorStateRef.current?.groomingPause ?? false,
+      isFlying: isFlying,
+      activeEnvironment: activeEnvironment,
+      kitchenBoundaryMode: kitchenBoundaryMode,
+      currentProduct: currentProduct,
+    };
+    const res = neuroAIConsciousness.processHumanMessage(textToSend, context);
     setUserChatInput('');
     setMicTranscript('');
     setEngramMutationCounter(res.mutations);
@@ -2654,398 +2671,450 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             </div>
           )}
 
-          {/* Live 6-Channel Electrophysiological Spike Raster Monitor */}
-          {!isImmersiveMode && showSpikeRasterHUD && (
-            <div className="absolute top-16 right-3 z-20 w-72 sm:w-80 rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-purple-500/40 p-2.5 shadow-2xl transition-all pointer-events-auto">
-              <div className="flex items-center justify-between border-b border-purple-500/20 pb-1.5 mb-1.5">
-                <div className="flex items-center space-x-1.5">
-                  <Activity className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-                  <span className="text-[10px] font-bold text-white uppercase tracking-wider">
-                    Electrofisiología Multicanal (MEA)
-                  </span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <span className="text-[8px] font-mono px-1 rounded bg-purple-500/20 text-purple-300">
-                    6 CANALES EN VIVO
-                  </span>
-                  <button
-                    onClick={() => setShowSpikeRasterHUD(false)}
-                    className="text-slate-500 hover:text-white text-xs px-1"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
 
-              {/* Spike Canvas */}
-              <canvas
-                ref={spikeCanvasRef}
-                width={320}
-                height={120}
-                className="w-full h-28 rounded-lg bg-black border border-slate-800"
-              />
 
-              <div className="mt-1 flex items-center justify-between text-[7px] text-slate-400 font-mono">
-                <span>Latencia: &lt;2 ms</span>
-                <span className="text-emerald-400 font-bold">120 FPS Real-Time SNN</span>
-              </div>
-            </div>
-          )}
 
-          {/* Environment Switcher: Cocina 3D vs Arena & Odor Testing Palette */}
+
+          {/* Unified Fly Cockpit Dock Bar & Modular Drawer */}
           {!isImmersiveMode && (
-            <div className="absolute top-3 left-3 z-10 flex flex-col space-y-2">
-              <div className="p-1 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700 flex flex-col space-y-1 shadow-xl">
-                <div className="flex items-center space-x-1">
-                  <button
-                    onClick={() => setActiveEnvironment('kitchen')}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
-                      activeEnvironment === 'kitchen'
-                        ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow ring-1 ring-amber-400'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Cocina virtual hiperrealista con terrario de cristal, encimera de cuarzo y frutero"
-                  >
-                    <Utensils className="w-3.5 h-3.5" />
-                    <span>🍽️ Cocina</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveEnvironment('scanned_room')}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
-                      activeEnvironment === 'scanned_room'
-                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow ring-1 ring-purple-400'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Habitación 3D (suelo, muros y muebles con límites físicos)"
-                  >
-                    <Home className="w-3.5 h-3.5" />
-                    <span>🏠 Mi Cuarto</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveEnvironment('arena')}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
-                      activeEnvironment === 'arena'
-                        ? 'bg-cyan-600 text-white shadow ring-1 ring-cyan-400'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Cilindro de cristal de biolaboratorio con retícula de suelo"
-                  >
-                    <Bug className="w-3.5 h-3.5" />
-                    <span>🔬 Arena</span>
-                  </button>
-                </div>
-
-                {/* Kitchen Boundary Sub-Bar (Terrarium vs Full Room) */}
-                {activeEnvironment === 'kitchen' && (
-                  <div className="flex items-center space-x-1 p-0.5 bg-slate-950/80 rounded-lg border border-slate-800 text-[10px]">
-                    <span className="text-slate-400 px-1 font-semibold text-[9px]">Límites:</span>
-                    <button
-                      onClick={() => setKitchenBoundaryMode('terrarium')}
-                      className={`px-2 py-0.5 rounded font-bold transition ${
-                        kitchenBoundaryMode === 'terrarium'
-                          ? 'bg-cyan-600 text-white shadow ring-1 ring-cyan-400'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Confinar estrictamente al Terrario de Cristal en la isla"
-                    >
-                      🧊 Terrario Cristal
-                    </button>
-                    <button
-                      onClick={() => setKitchenBoundaryMode('room')}
-                      className={`px-2 py-0.5 rounded font-bold transition ${
-                        kitchenBoundaryMode === 'room'
-                          ? 'bg-amber-600 text-white shadow ring-1 ring-amber-400'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Permitir vuelo por toda la cocina (delimitada por las 4 paredes arquitectónicas y techo)"
-                    >
-                      🏠 Cocina Abierta
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Household Odor Testing Palette */}
-              <div className="p-2.5 rounded-xl bg-slate-900/90 backdrop-blur-md border border-amber-500/40 max-w-[240px] shadow-xl transition-all">
-                <div className="flex items-center justify-between text-xs font-bold text-amber-400 mb-1.5">
-                  <div
-                    className="flex items-center space-x-1.5 cursor-pointer select-none"
-                    onClick={() => setIsOdorPaletteCollapsed(!isOdorPaletteCollapsed)}
-                  >
-                    <Beaker className="w-4 h-4 text-amber-400" />
-                    <span>Test Olores Caseros</span>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    {activeEnvironment === 'kitchen' && !isOdorPaletteCollapsed && (
-                      <span className="text-[9px] font-mono px-1 rounded bg-amber-500/20 text-amber-300">Cocina</span>
-                    )}
-                    <button
-                      onClick={() => setIsOdorPaletteCollapsed(!isOdorPaletteCollapsed)}
-                      className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-300"
-                      title={isOdorPaletteCollapsed ? "Expandir olores" : "Minimizar olores"}
-                    >
-                      {isOdorPaletteCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                {!isOdorPaletteCollapsed && (
-                  <>
-                    <select
-                      value={selectedStimulusIdx}
-                      onChange={(e) => handleSelectOdorProduct(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-950 border border-slate-700 text-white rounded-lg px-2 py-1.5 text-xs font-medium focus:ring-1 focus:ring-amber-400 outline-none cursor-pointer"
-                    >
-                      {HOUSEHOLD_ODOR_PRODUCTS.map((prod, idx) => (
-                        <option key={prod.id} value={idx}>
-                          {prod.icon} {prod.name} ({prod.naturalValence > 0 ? `+${prod.naturalValence}` : `${prod.naturalValence}`})
-                        </option>
-                      ))}
-                    </select>
-                    {currentProduct && (
-                      <div className="mt-2 text-[10px] text-slate-300 space-y-0.5 font-mono">
-                        <div className="text-amber-300 font-semibold truncate">{currentProduct.compound}</div>
-                        <div className="text-slate-400">Glomérulo: <span className="text-cyan-400">{currentProduct.glomerulus}</span></div>
-                        <div className="text-slate-400">
-                          Reacción: <span className={memoryStats.valence > 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
-                            {memoryStats.valence > 0 ? "🟢 Atracción" : "🔴 Escape Nociceptivo"}
-                          </span>
-                        </div>
-                        {activeEnvironment === 'kitchen' && (
-                          <div className="text-slate-400 text-[9px] pt-1 border-t border-slate-800">
-                            Ubicación: <span className="text-yellow-300 font-semibold">
-                              {selectedStimulusIdx === 0 || selectedStimulusIdx === 2
-                                ? "🍌 Frutero (Encimera)"
-                                : selectedStimulusIdx === 1
-                                ? "🍾 Botella Vinagre"
-                                : selectedStimulusIdx === 3 || selectedStimulusIdx === 4
-                                ? "🍯 Tabla Miel & Limón"
-                                : "🗑️ Cubo de Basura"}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* FlyGym Telemetry & Aerial Flight Badge */}
-          {!isImmersiveMode && (
-            <div className="absolute top-3 right-3 z-10 p-2.5 rounded-xl bg-slate-900/90 backdrop-blur-md border border-emerald-500/30 min-w-[210px] max-w-[260px] shadow-xl transition-all">
-              <div className="text-[11px] font-bold text-emerald-400 flex items-center justify-between">
-                <div
-                  className="flex items-center space-x-1 cursor-pointer select-none"
-                  onClick={() => setIsTelemetryCollapsed(!isTelemetryCollapsed)}
+            <div className="absolute top-3 right-3 z-30 flex flex-col items-end space-y-2 pointer-events-auto max-w-[95vw]">
+              {/* Dock Pills Menu Bar */}
+              <div className="flex items-center p-1 rounded-2xl bg-slate-950/90 backdrop-blur-xl border border-slate-700/70 shadow-2xl space-x-1">
+                <button
+                  onClick={() => setActiveFlyDockTab(activeFlyDockTab === 'environment' ? null : 'environment')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    activeFlyDockTab === 'environment'
+                      ? 'bg-amber-600 text-white shadow ring-1 ring-amber-400 font-bold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                  title="Configurar entorno 3D y límites físicos"
                 >
-                  <Bug className="w-3.5 h-3.5" />
-                  <span>FlyGym (EPFL)</span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                    isFlying ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300'
-                  }`}>
-                    {isFlying ? '🚀 EN VUELO' : '🪰 EN SUPERFICIE'}
-                  </span>
+                  <Utensils className="w-3.5 h-3.5 text-amber-300" />
+                  <span className="hidden sm:inline">Entorno</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveFlyDockTab(activeFlyDockTab === 'odors' ? null : 'odors')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    activeFlyDockTab === 'odors'
+                      ? 'bg-amber-500 text-slate-950 shadow ring-1 ring-amber-300 font-bold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                  title="Paleta de olores y quimiorrecepción"
+                >
+                  <Beaker className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">Olores</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveFlyDockTab(activeFlyDockTab === 'telemetry' ? null : 'telemetry')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    activeFlyDockTab === 'telemetry'
+                      ? 'bg-emerald-600 text-white shadow ring-1 ring-emerald-400 font-bold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                  title="Telemetría FlyGym, pulsiones internas y física M5"
+                >
+                  <Bug className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">Telemetría</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveFlyDockTab(activeFlyDockTab === 'mea' ? null : 'mea')}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    activeFlyDockTab === 'mea'
+                      ? 'bg-purple-600 text-white shadow ring-1 ring-purple-400 font-bold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                  title="Electrofisiología Multicanal (MEA SNN en vivo)"
+                >
+                  <Activity className="w-3.5 h-3.5 text-purple-400" />
+                  <span className="hidden sm:inline">MEA</span>
+                </button>
+
+                <button
+                  onClick={() => setShowEyeProjector(!showEyeProjector)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    showEyeProjector
+                      ? 'bg-cyan-600 text-white shadow ring-1 ring-cyan-400 font-bold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                  title="Proyector de Visión Compuesta"
+                >
+                  <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="hidden sm:inline">Visión</span>
+                </button>
+
+                <button
+                  onClick={() => setShowSensoryCascade(!showSensoryCascade)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition ${
+                    showSensoryCascade
+                      ? 'bg-yellow-600 text-white shadow ring-1 ring-yellow-400 font-bold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                  title="Circuito de Cascada Sensorial Biológica"
+                >
+                  <Brain className="w-3.5 h-3.5 text-yellow-300" />
+                  <span className="hidden sm:inline">Cascada</span>
+                </button>
+
+                {activeFlyDockTab && (
                   <button
-                    onClick={() => setIsTelemetryCollapsed(!isTelemetryCollapsed)}
-                    className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-300"
-                    title={isTelemetryCollapsed ? "Expandir telemetría" : "Minimizar telemetría"}
+                    onClick={() => setActiveFlyDockTab(null)}
+                    className="p-1 px-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-850 transition text-xs font-bold"
+                    title="Minimizar panel activo"
                   >
-                    {isTelemetryCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    ✕
                   </button>
-                </div>
+                )}
               </div>
 
-              {!isTelemetryCollapsed && (
-                <>
-                  <div className="mt-2 flex flex-col space-y-1 text-[10px] text-slate-300 font-mono">
-                    <div className="flex justify-between">
-                      <span>Hábitat:</span>
-                      <span className="text-cyan-300 font-bold truncate max-w-[120px]">
-                        {activeEnvironment === 'kitchen' 
-                          ? (kitchenBoundaryMode === 'terrarium' ? 'Cocina (Terrario)' : 'Cocina Completa')
-                          : activeEnvironment === 'scanned_room'
-                          ? (currentRoomScan?.name || 'Mi Cuarto 3D')
-                          : 'Cilindro Cristal'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Altitud 3D:</span>
-                      <span className={isFlying ? "text-amber-300 font-bold" : "text-slate-400"}>
-                        {isFlying
-                          ? `${(flyModelRef.current?.position.y || (activeEnvironment === 'kitchen' ? 1.8 : 1.5)).toFixed(2)} m`
-                          : activeEnvironment === 'kitchen' 
-                          ? '1.02 m (Encimera)' 
-                          : activeEnvironment === 'scanned_room'
-                          ? `${(flyModelRef.current?.position.y || 0.4).toFixed(2)} m`
-                          : '0.0 m (Suelo)'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Rumbo:</span>
-                      <span className="text-cyan-400 font-bold">{flyHeadingAngle}°</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Locomoción:</span>
-                      <span className="text-emerald-400 font-bold">
-                        {isFlying ? 'Aleteo 200 Hz' : `${firingRateHz.toFixed(1)} Hz (Trípode)`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Olor Activo:</span>
-                      <span className="text-yellow-300 truncate max-w-[100px]">{currentProduct.icon} {currentProduct.name.split(':')[0]}</span>
-                    </div>
-
-                    {/* ── Drive State Bars (Internal Motivational State) ── */}
-                    <div className="mt-1.5 pt-1.5 border-t border-slate-800">
-                      <div className="text-[9px] text-slate-500 font-semibold mb-1 uppercase tracking-wider">Estado Interno</div>
-                      {[
-                        { label: '🍯 Hambre', key: 'hungerDrive', color: 'bg-amber-400' },
-                        { label: '🧭 Exploración', key: 'explorationDrive', color: 'bg-cyan-400' },
-                        { label: '😴 Fatiga', key: 'fatigueDrive', color: 'bg-indigo-400' },
-                        { label: '⚡ Aversión', key: 'aversiveDrive', color: 'bg-red-400' },
-                      ].map(d => {
-                        const val = behaviorStateRef.current?.[d.key] ?? 0;
-                        return (
-                          <div key={d.key} className="flex items-center gap-1 mb-0.5">
-                            <span className="w-20 shrink-0">{d.label}</span>
-                            <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${d.color}`}
-                                style={{ width: `${Math.round(val * 100)}%` }}
-                              />
-                            </div>
-                            <span className="w-7 text-right text-slate-500">{Math.round(val * 100)}%</span>
-                          </div>
-                        );
-                      })}
-                      <div className="flex justify-between mt-1">
-                        <span>Fase:</span>
-                        <span className={`font-bold ${
-                          behaviorStateRef.current?.groomingPause ? 'text-pink-400'
-                          : behaviorStateRef.current?.saccadePhase === 'saccading' ? 'text-yellow-300'
-                          : 'text-emerald-400'
-                        }`}>
-                          {behaviorStateRef.current?.groomingPause ? '✂️ Acicalando'
-                           : behaviorStateRef.current?.saccadePhase === 'saccading' ? '↩️ Sacada'
-                           : behaviorStateRef.current?.levyStepLength > 0 ? '🚶 Lévy Walk'
-                           : '📌 Fijación'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Fly Scale / Proportion Selector */}
-                  <div className="pt-2 border-t border-slate-800">
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold mb-1">
-                      <span>Proporción Mosca:</span>
-                      <span className="text-cyan-400 font-mono font-bold">
-                        {flyScaleMode === 'proportional' ? '~14 cm (Óptima)' : flyScaleMode === 'realistic_1to1' ? '~4.8 cm (1:1)' : flyScaleMode === 'macro_flygym' ? '~50 cm' : '~1.5 m'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 text-[9px]">
-                      {FLY_SCALE_OPTIONS.map(opt => (
+              {/* The Single Active Drawer Card */}
+              {activeFlyDockTab && (
+                <div className="w-72 sm:w-80 rounded-2xl bg-slate-950/95 backdrop-blur-2xl border border-slate-700/80 p-3 shadow-2xl max-h-[calc(100vh-140px)] overflow-y-auto pointer-events-auto transition-all animate-fadeIn">
+                  
+                  {/* TAB 1: ENVIRONMENT */}
+                  {activeFlyDockTab === 'environment' && (
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex items-center justify-between border-b border-amber-500/20 pb-1.5 mb-1">
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-400">
+                          <Utensils className="w-3.5 h-3.5" />
+                          <span>Entorno 3D</span>
+                        </div>
                         <button
-                          key={opt.id}
-                          onClick={() => setFlyScaleMode(opt.id)}
-                          className={`py-1 px-1.5 rounded font-medium transition text-left truncate ${
-                            flyScaleMode === opt.id
-                              ? 'bg-cyan-600 text-white font-bold ring-1 ring-cyan-300'
-                              : 'bg-slate-950 text-slate-400 hover:text-white'
-                          }`}
-                          title={opt.desc}
+                          onClick={() => setActiveFlyDockTab(null)}
+                          className="text-slate-400 hover:text-white text-xs px-1"
                         >
-                          {opt.label}
+                          ✕
                         </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Follow Cam Toggle */}
-                  <div className="flex items-center justify-between pt-1.5 text-[10px]">
-                    <span className="text-slate-400 font-medium">Cámara Centrada:</span>
-                    <button
-                      onClick={() => setIsFollowCamActive(!isFollowCamActive)}
-                      className={`px-2 py-0.5 rounded text-[9px] font-bold transition ${
-                        isFollowCamActive ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
-                      }`}
-                      title="Mantiene la cámara 3D centrada automáticamente en la mosca mientras camina o vuela"
-                    >
-                      {isFollowCamActive ? '🎥 Seguir ON' : '🎥 Seguir OFF'}
-                    </button>
-                  </div>
-
-                  {/* Apple Silicon M5 Live MuJoCo / SNN Telemetry */}
-                  {m5Status === 'connected' && m5Telemetry && (
-                    <div className="pt-2 mt-2 border-t border-emerald-500/30 text-[10px]">
-                      <div className="flex items-center justify-between text-emerald-400 font-bold mb-1">
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          <span>Física MuJoCo M5:</span>
-                        </span>
-                        <span className="font-mono text-[9px] bg-emerald-500/20 px-1 rounded">{m5Telemetry.fps || 120} Hz</span>
                       </div>
-                      <div className="grid grid-cols-3 gap-1 text-[8px] font-mono text-slate-300">
-                        <div className="bg-slate-950/80 p-1 rounded text-center border border-slate-800">
-                          <span className="text-slate-500 block text-[7px]">DNa01 (Motor)</span>
-                          <span className="text-cyan-400 font-bold">{m5Telemetry.spikes?.DNa01_Hz || 45} Hz</span>
-                        </div>
-                        <div className="bg-slate-950/80 p-1 rounded text-center border border-slate-800">
-                          <span className="text-slate-500 block text-[7px]">Fase CPG</span>
-                          <span className="text-emerald-400 font-bold">{Math.round((m5Telemetry.cpg_phase || 0) * 100)}%</span>
-                        </div>
-                        <div className="bg-slate-950/80 p-1 rounded text-center border border-slate-800">
-                          <span className="text-slate-500 block text-[7px]">P-FL3 (Giro)</span>
-                          <span className="text-amber-400 font-bold">{m5Telemetry.spikes?.PFL3_L_Hz || 20} Hz</span>
-                        </div>
+
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => setActiveEnvironment('kitchen')}
+                          className={`flex-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 ${
+                            activeEnvironment === 'kitchen'
+                              ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow ring-1 ring-amber-400'
+                              : 'bg-slate-900 text-slate-400 hover:text-white'
+                          }`}
+                          title="Cocina virtual hiperrealista con terrario de cristal, encimera de cuarzo y frutero"
+                        >
+                          <span>🍽️ Cocina</span>
+                        </button>
+                        <button
+                          onClick={() => setActiveEnvironment('scanned_room')}
+                          className={`flex-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 ${
+                            activeEnvironment === 'scanned_room'
+                              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow ring-1 ring-purple-400'
+                              : 'bg-slate-900 text-slate-400 hover:text-white'
+                          }`}
+                          title="Habitación 3D (suelo, muros y muebles con límites físicos)"
+                        >
+                          <span>🏠 Mi Cuarto</span>
+                        </button>
+                        <button
+                          onClick={() => setActiveEnvironment('arena')}
+                          className={`flex-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 ${
+                            activeEnvironment === 'arena'
+                              ? 'bg-cyan-600 text-white shadow ring-1 ring-cyan-400'
+                              : 'bg-slate-900 text-slate-400 hover:text-white'
+                          }`}
+                          title="Cilindro de cristal de biolaboratorio con retícula de suelo"
+                        >
+                          <span>🔬 Arena</span>
+                        </button>
                       </div>
-                      {/* Ground contact forces 6 legs */}
-                      {m5Telemetry.ground_forces && (
-                        <div className="mt-1.5 flex items-center justify-between gap-1 text-[8px] text-slate-400 font-mono">
-                          <span>Fricción Patas:</span>
-                          <div className="flex gap-0.5">
-                            {['L1', 'R1', 'L2', 'R2', 'L3', 'R3'].map(leg => (
-                              <span
-                                key={leg}
-                                className={`px-1 py-0.2 rounded font-bold ${
-                                  (m5Telemetry.ground_forces[leg] || 0) > 0.1
-                                    ? 'bg-emerald-500 text-slate-950'
-                                    : 'bg-slate-800 text-slate-500'
-                                }`}
-                              >
-                                {leg}
-                              </span>
-                            ))}
+
+                      {/* Kitchen Boundary Sub-Bar (Terrarium vs Full Room) */}
+                      {activeEnvironment === 'kitchen' && (
+                        <div className="p-1.5 bg-slate-900/90 rounded-xl border border-slate-800 text-[10px] space-y-1">
+                          <span className="text-slate-400 font-semibold text-[9px] block">Límites del Hábitat:</span>
+                          <div className="flex items-center space-x-1">
+                            <button
+                              onClick={() => setKitchenBoundaryMode('terrarium')}
+                              className={`flex-1 px-2 py-1 rounded font-bold transition text-center ${
+                                kitchenBoundaryMode === 'terrarium'
+                                  ? 'bg-cyan-600 text-white shadow ring-1 ring-cyan-400'
+                                  : 'bg-slate-950 text-slate-400 hover:text-white'
+                              }`}
+                              title="Confinar estrictamente al Terrario de Cristal en la isla"
+                            >
+                              🧊 Terrario Cristal
+                            </button>
+                            <button
+                              onClick={() => setKitchenBoundaryMode('room')}
+                              className={`flex-1 px-2 py-1 rounded font-bold transition text-center ${
+                                kitchenBoundaryMode === 'room'
+                                  ? 'bg-amber-600 text-white shadow ring-1 ring-amber-400'
+                                  : 'bg-slate-950 text-slate-400 hover:text-white'
+                              }`}
+                              title="Permitir vuelo por toda la cocina (delimitada por las 4 paredes arquitectónicas y techo)"
+                            >
+                              🏠 Cocina Abierta
+                            </button>
                           </div>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Manual Flight / Land Trigger Button */}
-                  <button
-                    onClick={toggleFlight}
-                    className={`mt-2.5 w-full py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition shadow active:scale-95 ${
-                      isFlying
-                        ? 'bg-amber-600 hover:bg-amber-500 text-white animate-pulse'
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                    }`}
-                  >
-                    <Rocket className="w-3.5 h-3.5" />
-                    <span>
-                      {isFlying 
-                        ? (activeEnvironment === 'kitchen' 
-                            ? 'Aterrizar en Encimera' 
-                            : activeEnvironment === 'scanned_room'
-                            ? 'Aterrizar en Habitación'
-                            : 'Aterrizar en Suelo') 
-                        : 'Despegar a Volar 3D'}
-                    </span>
-                  </button>
-                </>
+                  {/* TAB 2: ODORS */}
+                  {activeFlyDockTab === 'odors' && (
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex items-center justify-between border-b border-amber-500/20 pb-1.5 mb-1">
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-400">
+                          <Beaker className="w-3.5 h-3.5" />
+                          <span>Paleta de Olores</span>
+                        </div>
+                        <button
+                          onClick={() => setActiveFlyDockTab(null)}
+                          className="text-slate-400 hover:text-white text-xs px-1"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <select
+                        value={selectedStimulusIdx}
+                        onChange={(e) => handleSelectOdorProduct(parseInt(e.target.value, 10))}
+                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-lg px-2 py-1.5 text-xs font-medium focus:ring-1 focus:ring-amber-400 outline-none cursor-pointer"
+                      >
+                        {HOUSEHOLD_ODOR_PRODUCTS.map((prod, idx) => (
+                          <option key={prod.id} value={idx}>
+                            {prod.icon} {prod.name} ({prod.naturalValence > 0 ? `+${prod.naturalValence}` : `${prod.naturalValence}`})
+                          </option>
+                        ))}
+                      </select>
+
+                      {currentProduct && (
+                        <div className="mt-1 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-[10px] text-slate-300 space-y-1 font-mono">
+                          <div className="text-amber-300 font-semibold truncate">{currentProduct.compound}</div>
+                          <div className="text-slate-400">Glomérulo: <span className="text-cyan-400">{currentProduct.glomerulus}</span></div>
+                          <div className="text-slate-400">
+                            Reacción: <span className={memoryStats.valence > 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                              {memoryStats.valence > 0 ? "🟢 Atracción" : "🔴 Escape Nociceptivo"}
+                            </span>
+                          </div>
+                          {activeEnvironment === 'kitchen' && (
+                            <div className="text-slate-400 text-[9px] pt-1 border-t border-slate-800">
+                              Ubicación: <span className="text-yellow-300 font-semibold">
+                                {selectedStimulusIdx === 0 || selectedStimulusIdx === 2
+                                  ? "🍌 Frutero (Encimera)"
+                                  : selectedStimulusIdx === 1
+                                  ? "🍾 Botella Vinagre"
+                                  : selectedStimulusIdx === 3 || selectedStimulusIdx === 4
+                                  ? "🍯 Tabla Miel & Limón"
+                                  : "🗑️ Cubo de Basura"}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB 3: TELEMETRY */}
+                  {activeFlyDockTab === 'telemetry' && (
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex items-center justify-between border-b border-emerald-500/20 pb-1.5 mb-1">
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-emerald-400">
+                          <Bug className="w-3.5 h-3.5" />
+                          <span>Telemetría FlyGym (EPFL)</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                            isFlying ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300'
+                          }`}>
+                            {isFlying ? '🚀 EN VUELO' : '🪰 EN SUPERFICIE'}
+                          </span>
+                          <button
+                            onClick={() => setActiveFlyDockTab(null)}
+                            className="text-slate-400 hover:text-white text-xs px-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col space-y-1 text-[10px] text-slate-300 font-mono">
+                        <div className="flex justify-between">
+                          <span>Hábitat:</span>
+                          <span className="text-cyan-300 font-bold truncate max-w-[120px]">
+                            {activeEnvironment === 'kitchen' 
+                              ? (kitchenBoundaryMode === 'terrarium' ? 'Cocina (Terrario)' : 'Cocina Completa')
+                              : activeEnvironment === 'scanned_room'
+                              ? (currentRoomScan?.name || 'Mi Cuarto 3D')
+                              : 'Cilindro Cristal'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Altitud 3D:</span>
+                          <span className={isFlying ? "text-amber-300 font-bold" : "text-slate-400"}>
+                            {isFlying
+                              ? `${(flyModelRef.current?.position.y || (activeEnvironment === 'kitchen' ? 1.8 : 1.5)).toFixed(2)} m`
+                              : activeEnvironment === 'kitchen' 
+                              ? '1.02 m (Encimera)' 
+                              : activeEnvironment === 'scanned_room'
+                              ? `${(flyModelRef.current?.position.y || 0.4).toFixed(2)} m`
+                              : '0.0 m (Suelo)'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Rumbo:</span>
+                          <span className="text-cyan-400 font-bold">{flyHeadingAngle}°</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Locomoción:</span>
+                          <span className="text-emerald-400 font-bold">
+                            {isFlying ? 'Aleteo 200 Hz' : `${firingRateHz.toFixed(1)} Hz (Trípode)`}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Olor Activo:</span>
+                          <span className="text-yellow-300 truncate max-w-[100px]">{currentProduct.icon} {currentProduct.name.split(':')[0]}</span>
+                        </div>
+
+                        {/* Drive State Bars */}
+                        <div className="mt-1.5 pt-1.5 border-t border-slate-800">
+                          <div className="text-[9px] text-slate-500 font-semibold mb-1 uppercase tracking-wider">Estado Interno / Pulsiones</div>
+                          {[
+                            { label: '🍯 Hambre', key: 'hungerDrive', color: 'bg-amber-400' },
+                            { label: '🧭 Exploración', key: 'explorationDrive', color: 'bg-cyan-400' },
+                            { label: '😴 Fatiga', key: 'fatigueDrive', color: 'bg-indigo-400' },
+                            { label: '⚡ Aversión / Dolor', key: 'aversiveDrive', color: 'bg-red-400' },
+                          ].map(d => {
+                            const val = behaviorStateRef.current?.[d.key] ?? 0;
+                            return (
+                              <div key={d.key} className="flex items-center gap-1 mb-0.5">
+                                <span className="w-24 shrink-0">{d.label}</span>
+                                <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-300 ${d.color}`}
+                                    style={{ width: `${Math.round(val * 100)}%` }}
+                                  />
+                                </div>
+                                <span className="w-7 text-right text-slate-500">{Math.round(val * 100)}%</span>
+                              </div>
+                            );
+                          })}
+                          <div className="flex justify-between mt-1">
+                            <span>Fase:</span>
+                            <span className={`font-bold ${
+                              behaviorStateRef.current?.groomingPause ? 'text-pink-400'
+                              : behaviorStateRef.current?.saccadePhase === 'saccading' ? 'text-yellow-300'
+                              : 'text-emerald-400'
+                            }`}>
+                              {behaviorStateRef.current?.groomingPause ? '✂️ Acicalando'
+                               : behaviorStateRef.current?.saccadePhase === 'saccading' ? '↩️ Sacada'
+                               : behaviorStateRef.current?.levyStepLength > 0 ? '🚶 Lévy Walk'
+                               : '📌 Fijación'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Scale & Follow-cam */}
+                      <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-slate-400 font-medium">Cámara Centrada:</span>
+                          <button
+                            onClick={() => setIsFollowCamActive(!isFollowCamActive)}
+                            className={`px-2 py-0.5 rounded text-[9px] font-bold transition ${
+                              isFollowCamActive ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
+                            }`}
+                          >
+                            {isFollowCamActive ? '🎥 Seguir ON' : '🎥 Seguir OFF'}
+                          </button>
+                        </div>
+
+                        {/* Flight trigger button */}
+                        <button
+                          onClick={toggleFlight}
+                          className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition shadow active:scale-95 ${
+                            isFlying
+                              ? 'bg-amber-600 hover:bg-amber-500 text-white animate-pulse'
+                              : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                          }`}
+                        >
+                          <Rocket className="w-3.5 h-3.5" />
+                          <span>
+                            {isFlying 
+                              ? (activeEnvironment === 'kitchen' 
+                                  ? 'Aterrizar en Encimera' 
+                                  : activeEnvironment === 'scanned_room'
+                                  ? 'Aterrizar en Habitación'
+                                  : 'Aterrizar en Suelo') 
+                              : 'Despegar a Volar 3D'}
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* Apple Silicon M5 Live MuJoCo / SNN Telemetry */}
+                      {m5Status === 'connected' && m5Telemetry && (
+                        <div className="pt-2 mt-1 border-t border-emerald-500/30 text-[10px]">
+                          <div className="flex items-center justify-between text-emerald-400 font-bold mb-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                              <span>Física MuJoCo M5:</span>
+                            </span>
+                            <span className="font-mono text-[9px] bg-emerald-500/20 px-1 rounded">{m5Telemetry.fps || 120} Hz</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1 text-[8px] font-mono text-slate-300">
+                            <div className="bg-slate-950/80 p-1 rounded text-center border border-slate-800">
+                              <span className="text-slate-500 block text-[7px]">DNa01 (Motor)</span>
+                              <span className="text-cyan-400 font-bold">{m5Telemetry.spikes?.DNa01_Hz || 45} Hz</span>
+                            </div>
+                            <div className="bg-slate-950/80 p-1 rounded text-center border border-slate-800">
+                              <span className="text-slate-500 block text-[7px]">Fase CPG</span>
+                              <span className="text-emerald-400 font-bold">{Math.round((m5Telemetry.cpg_phase || 0) * 100)}%</span>
+                            </div>
+                            <div className="bg-slate-950/80 p-1 rounded text-center border border-slate-800">
+                              <span className="text-slate-500 block text-[7px]">P-FL3 (Giro)</span>
+                              <span className="text-amber-400 font-bold">{m5Telemetry.spikes?.PFL3_L_Hz || 20} Hz</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB 4: MEA */}
+                  {activeFlyDockTab === 'mea' && (
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex items-center justify-between border-b border-purple-500/20 pb-1.5 mb-1">
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-white">
+                          <Activity className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                          <span>Electrofisiología Multicanal (MEA)</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <span className="text-[8px] font-mono px-1 rounded bg-purple-500/20 text-purple-300">
+                            6 CANALES
+                          </span>
+                          <button
+                            onClick={() => setActiveFlyDockTab(null)}
+                            className="text-slate-400 hover:text-white text-xs px-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Spike Canvas */}
+                      <canvas
+                        ref={spikeCanvasRef}
+                        width={320}
+                        height={120}
+                        className="w-full h-28 rounded-lg bg-black border border-slate-800"
+                      />
+
+                      <div className="flex items-center justify-between text-[8px] text-slate-400 font-mono">
+                        <span>Latencia: &lt;2 ms</span>
+                        <span className="text-emerald-400 font-bold">120 FPS Real-Time SNN</span>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
               )}
             </div>
           )}
@@ -3301,7 +3370,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
       )}
 
       {/* Live Biological Sensory Cascade Circuit Banner */}
-      {!isImmersiveMode && activeStimulus === 'memory' && (
+      {!isImmersiveMode && showSensoryCascade && (
         <div className="absolute bottom-20 inset-x-3 sm:inset-x-6 z-20 pointer-events-auto">
           <div className="p-3 rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-amber-500/40 shadow-2xl transition-all">
             <div className="flex flex-wrap items-center justify-between border-b border-amber-500/20 pb-1.5 mb-2 gap-2">
@@ -3314,15 +3383,24 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
                   </span>
                 </span>
               </div>
-              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-              }`}>
-                {memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
-                  ? '🟢 Respuesta: Atracción & Extensión de Probóscide'
-                  : '🔴 Respuesta: Irritación Nociceptiva & Aseo (Grooming)'}
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                  memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                }`}>
+                  {memoryEngineRef.current.getNetValence(selectedStimulusIdx) > 0.1
+                    ? '🟢 Respuesta: Atracción'
+                    : '🔴 Respuesta: Aseo (Grooming)'}
+                </span>
+                <button
+                  onClick={() => setShowSensoryCascade(false)}
+                  className="w-5 h-5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs"
+                  title="Cerrar Cascada Sensorial"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* 6 Biological Circuit Stations */}
