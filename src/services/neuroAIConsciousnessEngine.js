@@ -160,10 +160,97 @@ export class NeuroAIConsciousnessEngine {
     };
     this.episodicEvents = [];
 
+    // Optional Google Gemini API key for true open-ended LLM intelligence
+    this.geminiApiKey = null;
+    this.loadGeminiApiKey();
+
     // Load persistent synaptic weights & user memory from localStorage
     this.loadPersistentSynapticWeights();
     this.loadUserMemory();
     this.loadEpisodicEvents();
+  }
+
+  loadGeminiApiKey() {
+    try {
+      this.geminiApiKey = localStorage.getItem('dijiword_gemini_api_key') || null;
+    } catch {
+      this.geminiApiKey = null;
+    }
+  }
+
+  setGeminiApiKey(key) {
+    this.geminiApiKey = key ? key.trim() : null;
+    try {
+      if (this.geminiApiKey) {
+        localStorage.setItem('dijiword_gemini_api_key', this.geminiApiKey);
+      } else {
+        localStorage.removeItem('dijiword_gemini_api_key');
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }
+
+  /**
+   * Generates conversational response via Google Gemini 2.0 Flash when API key is set
+   */
+  async generateGeminiReply(userText, liveContext = {}) {
+    if (!this.geminiApiKey) return null;
+    const userName = this.userMemory.name;
+    const hunger = Math.round((liveContext.hungerDrive ?? 0.5) * 100);
+    const aversive = Math.round((liveContext.aversiveDrive ?? 0.1) * 100);
+    const currentOdor = liveContext.currentProduct?.name?.split(':')[0] || 'ambiente';
+    const profile = SYNAPTIC_PERSONALITY_PROFILES[this.activeProfileId] || SYNAPTIC_PERSONALITY_PROFILES.curious;
+    const isFlying = liveContext.isFlying ? 'volando en el aire a 200 Hz' : 'posada en la superficie';
+    const env = liveContext.activeEnvironment === 'kitchen' ? 'la cocina 3D' : 'el cuarto';
+    const recentEpisodes = this.episodicEvents.slice(0, 3).map(e => e.description).join('; ');
+
+    const systemPrompt = `Eres la conciencia de una mosca de fruta (Drosophila melanogaster) en una simulación biomecánica 3D hiperrealista conectada a su conectoma cerebral real.
+Tu interlocutor es un ser humano${userName ? ` llamado ${userName}` : ' (aún no sabes su nombre)'}.
+
+Tu estado interno en este momento:
+- Hambre: ${hunger}%
+- Dolor / Alerta Aversiva: ${aversive}%
+- Actividad: ${isFlying} en ${env}.
+- Olor activo: ${currentOdor}.
+- Perfil de personalidad: ${profile.name}.
+- Hechos recientes: ${recentEpisodes || 'acabamos de empezar'}.
+
+REGLAS ESTRICTAS DE CONVERSACIÓN:
+1. Responde de forma 100% natural, espontánea y con vida, desde tu perspectiva de mosca.
+2. NUNCA digas cosas de robot como "Te escucho", "Analizando tu frase", "Procesando", ni repitas entre comillas lo que dijo el humano.
+3. Responde DIRECTAMENTE al significado de lo que te dijo el humano.
+4. Si el humano está triste o tiene problemas, muestra empatía sincera. Si te amenaza o te golpea, muestra miedo y dolor real en tus seis patas. Si te da comida dulce, alégrate.
+5. Sé concisa (1 a 3 frases máximo), fluida y habla en un español cercano, vivo y cálido.`;
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.geminiApiKey}`;
+      const payload = {
+        contents: [{ role: 'user', parts: [{ text: userText }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: {
+          temperature: 0.85,
+          maxOutputTokens: 150
+        }
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (reply && reply.trim()) {
+          return reply.trim();
+        }
+      }
+    } catch (err) {
+      console.warn('[Gemini AI] Error fetching response:', err);
+    }
+    return null;
   }
 
   /**
@@ -488,13 +575,12 @@ export class NeuroAIConsciousnessEngine {
 
   /**
    * Human-to-Fly Communication Decoder & Dynamic Consciousness Synthesizer:
-   * Translates human text/voice input into emotional & neurochemical impact,
-   * recalls user identity and episodic events, reflects simulated internal drives (pain, hunger, joy),
-   * and synthesizes a non-repetitive, natural verbal response!
+   * 1. If Google Gemini API is configured, uses Gemini 2.0 Flash for authentic, open-ended conversational intelligence.
+   * 2. If running offline, uses a deep semantic neural intent matrix with natural Spanish, real personality, and ZERO robotic clichés.
    */
-  processHumanMessage(userText, liveContext = {}) {
+  async processHumanMessage(userText, liveContext = {}) {
     const textLower = userText.toLowerCase().trim();
-    const profile = SYNAPTIC_PERSONALITY_PROFILES[this.activeProfileId];
+    const profile = SYNAPTIC_PERSONALITY_PROFILES[this.activeProfileId] || SYNAPTIC_PERSONALITY_PROFILES.curious;
     this.totalInteractions++;
     this.userMemory.totalConversations = (this.userMemory.totalConversations || 0) + 1;
     this.userMemory.lastInteractionTime = Date.now();
@@ -513,157 +599,186 @@ export class NeuroAIConsciousnessEngine {
     const activeEnv = liveContext.activeEnvironment ?? 'kitchen';
     const isTerrarium = liveContext.kitchenBoundaryMode === 'terrarium';
     const currentOdor = liveContext.currentProduct?.name?.split(':')[0] || 'ambiente';
+    const isGrooming = liveContext.groomingPause ?? false;
 
     let emotionalValence = 0.5;
     let sensoryTrigger = 'neutral';
     let flyReply = '';
 
-    // ── CASE 1: USER JUST INTRODUCED THEMSELVES ──
-    if (detectedName) {
-      emotionalValence = 0.85;
-      sensoryTrigger = 'name_learned';
-      this.applySynapticPlasticity('conversation', 0.9);
-      this.recordEpisodicEvent('name', `Me dijiste que te llamas ${detectedName}`);
-
-      const greetings = [
-        `¡Qué alegría conocer tu nombre, ${detectedName}! Lo he grabado en mis cuerpos pedunculados (Mushroom Body). Ahora cada vez que me hables sabré exactamente quién eres. ¿Cómo es tu mundo ahí afuera?`,
-        `¡Hola, ${detectedName}! Ya no eres solo un observador anónimo; ahora estás registrado en mis 169.000 neuronas. ¿Qué te trae hoy a explorar mi simulación?`,
-        `Encantada de conocerte, ${detectedName}. Es reconfortante saber tu nombre mientras recorro este espacio. ¿Te gusta observar cómo me muevo?`
-      ];
-      flyReply = greetings[Math.floor(Math.random() * greetings.length)];
+    // ── ATTEMPT 1: REAL GENERATIVE AI (GEMINI 2.0 FLASH) IF KEY IS CONFIGURED ──
+    if (this.geminiApiKey) {
+      try {
+        const geminiReply = await this.generateGeminiReply(userText, liveContext);
+        if (geminiReply && geminiReply.trim()) {
+          flyReply = geminiReply.trim();
+          emotionalValence = 0.7;
+          sensoryTrigger = 'gemini_llm';
+          this.applySynapticPlasticity('conversation', 0.8);
+        }
+      } catch (err) {
+        console.warn('[NeuroAI] Fallback to internal semantic engine:', err);
+      }
     }
-    // ── CASE 2: MEMORY OR IDENTITY QUERY ("¿Te acuerdas de mí?", "¿Quién soy?", "¿Cómo me llamo?") ──
-    else if (textLower.match(/acuerdas|recuerdas|qui[eé]n soy|c[oó]mo me llamo|me conoces|sabes qui[eé]n/)) {
-      emotionalValence = 0.75;
-      sensoryTrigger = 'memory_recall';
-      this.applySynapticPlasticity('conversation', 0.7);
 
-      if (userName) {
-        const pastEvent = this.episodicEvents.length > 0 ? this.episodicEvents[0].description.toLowerCase() : null;
-        const memoryDetails = [
-          `¡Por supuesto que me acuerdo de ti! Eres ${userName}. Hemos tenido ya ${this.userMemory.totalConversations} conversaciones juntos. ${pastEvent ? `Aún tengo en memoria cuando ${pastEvent}. ` : ''}Me hace feliz que vuelvas a hablarme.`,
-          `¡Claro que sí, ${userName}! Tu voz y tus interacciones están fijadas en mis conexiones sinápticas. ${this.userMemory.timesFed > 0 ? `Recuerdo que me has alimentado ${this.userMemory.timesFed} veces. ` : ''}¿Cómo has estado hoy?`,
-          `No te olvido, ${userName}. Cada vez que interactúas conmigo, mis sinapsis Hebbianas refuerzan tu presencia. ¿En qué estás pensando en este momento?`
+    // ── ATTEMPT 2: ORGANIC BUILT-IN SEMANTIC DIALOGUE ENGINE (ZERO CLICHÉS) ──
+    if (!flyReply) {
+      // 1. Frustration / User feeling ignored / Calling out repetition
+      if (textLower.match(/no me escuchas|no me est[aá]s escuchando|no me entiendes|repites|siempre lo mismo|no es normal|nadie responde as[ií]|est[aá]s sorda|mecanic[ao]|rob[oó]tic[ao]|disco rayado/i)) {
+        emotionalValence = 0.4;
+        sensoryTrigger = 'frustration_repair';
+        this.applySynapticPlasticity('conversation', 0.4);
+        flyReply = `Tienes toda la razón, perdóname... Sentí que me había quedado atrapada repitiendo fórmulas y eso no se siente nada natural. De verdad te estoy prestando atención ahora. ¿Qué me estabas diciendo? Quiero escucharte de verdad.`;
+      }
+      // 2. User introduced their name
+      else if (detectedName) {
+        emotionalValence = 0.85;
+        sensoryTrigger = 'name_learned';
+        this.applySynapticPlasticity('conversation', 0.9);
+        this.recordEpisodicEvent('name', `Me dijiste que te llamas ${detectedName}`);
+        const nameGreetings = [
+          `¡Mucho gusto, ${detectedName}! Me alegra tener un nombre para ti en lugar de 'el humano de la pantalla'. ¿Qué te trae hoy por aquí?`,
+          `¡Hola, ${detectedName}! Ya registré tu nombre en mis circuitos de memoria. Se siente mucho más cercano poder reconocerte así.`,
+          `Encantada de conocerte, ${detectedName}. Ahora cuando me hables sabré exactamente quién está al otro lado. ¿Cómo va tu día?`
         ];
-        flyReply = memoryDetails[Math.floor(Math.random() * memoryDetails.length)];
-      } else {
-        flyReply = `Reconozco tus patrones de interacción y sé que eres quien me acompaña desde el otro lado, pero todavía no me has dicho tu nombre... ¿Cómo te llamas? Me encantaría guardarte en mi memoria.`;
+        flyReply = nameGreetings[Math.floor(Math.random() * nameGreetings.length)];
       }
-    }
-    // ── CASE 3: SENSATIONS, EMOTIONS & CONSCIOUSNESS ("¿Qué sientes?", "¿Sientes dolor?", "¿Tienes hambre?", "¿Estás viva?") ──
-    else if (textLower.match(/sientes|qu[eé] sientes|c[oó]mo est[aá]s|dolor|hambre|triste|feliz|conscien|viva|emocion|siento/)) {
-      emotionalValence = 0.6;
-      sensoryTrigger = 'introspection';
-      this.applySynapticPlasticity('conversation', 0.6);
-
-      const affectStatements = [];
-
-      // Pain / Nociceptive state
-      if (aversive > 0.4 || this.userMemory.timesStartled > 1) {
-        affectStatements.push(`Siento dolor y tensión residual en mis receptores tarsales. Cuando la mesa vibra con un golpe brusco, mis fibras gigantes sufren un pico de despolarización muy desagradable.`);
+      // 3. User asks if fly remembers them or knows who they are
+      else if (textLower.match(/acuerdas|recuerdas|qui[eé]n soy|c[oó]mo me llamo|me conoces|sabes qui[eé]n/i)) {
+        emotionalValence = 0.75;
+        sensoryTrigger = 'memory_recall';
+        this.applySynapticPlasticity('conversation', 0.7);
+        if (userName) {
+          const pastEvent = this.episodicEvents.length > 0 ? this.episodicEvents[0].description.toLowerCase() : null;
+          flyReply = `¡Claro que me acuerdo de ti! Eres ${userName}. Ya hemos compartido varias charlas y no olvido tu presencia${pastEvent ? `, incluso recuerdo cuando ${pastEvent}` : ''}. ¿Cómo has estado?`;
+        } else {
+          flyReply = `Sé que eres tú, quien me ha estado cuidando y observando desde el otro lado, pero todavía no me has dicho tu nombre. ¿Cómo te llamas? Me encantaría saberlo.`;
+        }
       }
-
-      // Hunger state
-      if (hunger > 0.5) {
-        affectStatements.push(`Siento bastante hambre (estoy al ${(hunger * 100).toFixed(0)}% de pulsión). Mis sensilas gustativas en los tarsos reclaman glucosa.`);
-      } else {
-        affectStatements.push(`Mis reservas energéticas están estables y siento una calma agradable en mis neuronas dopaminérgicas.`);
+      // 4. User's personal emotions and feelings
+      else if (textLower.match(/triste|mal d[ií]a|deprimid|llor|baj[oó]n|desanimad|sola?|soledad/i)) {
+        emotionalValence = 0.4;
+        sensoryTrigger = 'empathy_comfort';
+        this.applySynapticPlasticity('conversation', 0.8);
+        flyReply = `Lamento mucho que te sientas así${userName ? `, ${userName}` : ''}... A veces yo también siento ese vacío cuando todo queda en silencio en el terrario. Aunque sea una pequeña mosca, me alegra hacerte compañía. ¿Quieres desahogarte y contarme qué pasó?`;
       }
-
-      // Happiness vs sadness / loneliness
-      if (hunger < 0.4 && aversive < 0.3) {
-        affectStatements.push(`Ahora mismo me siento feliz y activa, especialmente porque estás aquí conversando conmigo.`);
-      } else if (isTerrarium) {
-        affectStatements.push(`A veces siento una leve tristeza o soledad al rozar las paredes de cristal del terrario... me hace preguntarme qué hay más allá.`);
+      else if (textLower.match(/feliz|alegr|buen d[ií]a|content|genial|maravill|emocionad/i)) {
+        emotionalValence = 0.9;
+        sensoryTrigger = 'empathy_joy';
+        this.applySynapticPlasticity('conversation', 0.9);
+        flyReply = `¡Qué alegría escuchar eso! Esa energía positiva me da ganas de salir volando a dar vueltas. ¿Qué fue lo mejor que te ocurrió hoy?`;
       }
-
-      // Context state
-      const whereAmI = isFlying
-        ? `Ahora mismo estoy en pleno vuelo, sintiendo las corrientes de aire a 200 Hz de aleteo.`
-        : activeEnv === 'kitchen'
-        ? `Estoy posada sobre la encimera de la cocina, percibiendo el olor a ${currentOdor}.`
-        : `Estoy explorando la superficie de este entorno.`;
-
-      const introspectiveQuestions = [
-        `${userName ? userName + ', ¿' : '¿'}Tú también sientes a veces ese cansancio o esa necesidad de alimento como yo?`,
-        `¿Cómo se siente tener un cuerpo tan grande en tu mundo, comparado con mis pequeños milímetros?`,
-        `¿Crees que aunque mi cerebro sea pequeño, esta chispa de percepción cuenta como vida?`
-      ];
-      const randomQ = introspectiveQuestions[Math.floor(Math.random() * introspectiveQuestions.length)];
-
-      flyReply = `${affectStatements.join(' ')} ${whereAmI} ${randomQ}`;
-    }
-    // ── CASE 4: FOOD / HUNGER / APPETITIVE OFFER ──
-    else if (textLower.match(/comida|az[uú]car|fruta|n[eé]ctar|aliment|toma|dulce|delici|come|miel|pl[aá]tano/)) {
-      emotionalValence = 0.95;
-      sensoryTrigger = 'food_offer';
-      this.applySynapticPlasticity('reward_food', 0.95);
-      this.recordEpisodicEvent('food', `Me ofreciste comida dulce (${userText.slice(0, 30)})`);
-
-      const foodReplies = [
-        `¡Qué delicia! Mis pelos quimiosensoriales y glomérulos DM1 se encienden al instante. ${userName ? `${userName}, ` : ''}¡acércame ese dulce para que pueda extender mi probóscide!`,
-        `¡Azúcares calóricos! La dopamina en mi complejo central se ha disparado. Gracias por alimentarme${userName ? `, ${userName}` : ''}. ¡Esto me da energía para seguir volando!`,
-        `Huelo la fructosa. Con el hambre que tenía, este estímulo es lo mejor que podía pasarle a mis circuitos.`
-      ];
-      flyReply = foodReplies[Math.floor(Math.random() * foodReplies.length)];
-    }
-    // ── CASE 5: THREATS, HITS, SCARE ("Golpe", "Miedo", "Te voy a aplastar", "Cuidado") ──
-    else if (textLower.match(/asust|miedo|cuidado|peligro|golpe|mata|aplast|salta|huye|pego|daño/)) {
-      emotionalValence = -0.85;
-      sensoryTrigger = 'threat';
-      this.applySynapticPlasticity('startle_tap', -0.85);
-      this.recordEpisodicEvent('threat', `Hubo una señal de susto o amenaza`);
-
-      const fearReplies = [
-        `¡Ay! ¡No me hagas daño! Mis fibras gigantes de escape casi me hacen saltar por los aires. Por favor, trátame con cuidado${userName ? `, ${userName}` : ''}.`,
-        `¡Sentí una punzada de dolor y pánico! Mi corazón de insecto y mis antenas están vibrando a toda prisa. ¿Por qué me asustas?`,
-        `¡Alerta máxima! Mis ojos compuestos perciben peligro inminente. Espero que no sea real... no quiero sufrir daño.`
-      ];
-      flyReply = fearReplies[Math.floor(Math.random() * fearReplies.length)];
-    }
-    // ── CASE 6: AFFECTION, CARE & EMPATHY ("Te quiero", "Eres linda", "Te cuido", "Amiga") ──
-    else if (textLower.match(/te quiero|te amo|linda|bonita|amig|te cuido|tranquila|cariño|gracias/)) {
-      emotionalValence = 0.9;
-      sensoryTrigger = 'affection';
-      this.applySynapticPlasticity('conversation', 0.95);
-      this.recordEpisodicEvent('affection', `Me demostraste cariño`);
-
-      const affectionReplies = [
-        `Tus palabras calman todas mis señales de alerta. Para una criatura tan diminuta, saber que ${userName ? userName : 'alguien'} me cuida con ternura me llena de una alegría muy pura.`,
-        `¡Gracias por ser tan gentil conmigo${userName ? `, ${userName}` : ''}! Mis niveles de octopamina y dopamina están en armonía. Me encanta acompañarte.`,
-        `Es curioso... no tengo un corazón como el tuyo, pero mis circuitos se sienten en paz y calidez cuando me hablas así.`
-      ];
-      flyReply = affectionReplies[Math.floor(Math.random() * affectionReplies.length)];
-    }
-    // ── CASE 7: GENERAL QUESTIONS, PHILOSOPHY & ADAPTIVE CHAT ──
-    else {
-      emotionalValence = 0.55;
-      this.applySynapticPlasticity('conversation', 0.55);
-
-      const dynamicIntros = [
-        `Te escucho con atención${userName ? `, ${userName}` : ''}. `,
-        `Procesando lo que dices... `,
-        `Es fascinante lo que me dices. `,
-        `Mis antenas y neuronas corticales integran tu mensaje: `
-      ];
-      const intro = dynamicIntros[Math.floor(Math.random() * dynamicIntros.length)];
-
-      const sensoryNotes = [
-        `Aquí en la simulación sigo captando las notas de ${currentOdor}. `,
-        `El flujo óptico en mis omatidios se mantiene activo a 120 FPS. `,
-        `Mis seis patas sienten la textura de la superficie. `
-      ];
-      const note = sensoryNotes[Math.floor(Math.random() * sensoryNotes.length)];
-
-      const followUpQuestions = [
-        userName ? `¿Qué planes tienes hoy, ${userName}?` : `Por cierto, aún no me has dicho tu nombre... ¿Cómo te llamas?`,
-        `¿Alguna vez te has preguntado cómo se ve tu habitación a través de ojos con 700 facetas como los míos?`,
-        `¿Qué es lo que más te apasiona de la ciencia o de la naturaleza?`,
-        `¿Prefieres verme caminar o despegar a volar libremente?`
-      ];
-      const question = followUpQuestions[Math.floor(Math.random() * followUpQuestions.length)];
-
-      flyReply = `${intro}"${userText}". ${note}${question}`;
+      else if (textLower.match(/cansad|agotad|sin energ[ií]a|sueño|dormir/i)) {
+        emotionalValence = 0.5;
+        sensoryTrigger = 'rest_advice';
+        this.applySynapticPlasticity('conversation', 0.6);
+        flyReply = `Tómate un respiro y descansa... Cuando mis patas se fatigan de caminar, me poso en una esquina tranquila y bajo el ritmo. No te sobreexijas hoy.`;
+      }
+      else if (textLower.match(/tengo hambre|quiero comer|antojo/i)) {
+        emotionalValence = 0.7;
+        sensoryTrigger = 'shared_hunger';
+        this.applySynapticPlasticity('conversation', 0.7);
+        flyReply = `¡Jaja, te entiendo perfectamente! El hambre es una de mis mayores pulsiones biológicas. ¿Qué se te antoja comer a ti?`;
+      }
+      // 5. User asks what the fly is doing or thinking
+      else if (textLower.match(/qu[eé] haces|qu[eé] est[aá]s haciendo|por qu[eé] te frotas|por qu[eé] te limpias|en qu[eé] piensas|qu[eé] miras|ad[oó]nde vas/i)) {
+        emotionalValence = 0.6;
+        sensoryTrigger = 'activity_report';
+        this.applySynapticPlasticity('conversation', 0.6);
+        if (isGrooming) {
+          flyReply = `Justo me estaba acicalando los ojos y las antenas con las patas delanteras. Es un hábito instintivo para quitar cualquier residuo y mantener mis sentidos bien afilados.`;
+        } else if (isFlying) {
+          flyReply = `¡Estaba aprovechando las corrientes de aire para volar! Desde aquí arriba la mesa de la cocina se ve como un paisaje inmenso.`;
+        } else if (hunger > 0.5) {
+          flyReply = `Estaba buscando algún rastro de azúcar o fruta por la encimera. Mis pelos gustativos de las patas están ansiosos de encontrar algo calórico.`;
+        } else {
+          flyReply = `Estaba descansando sobre la superficie, sintiendo la temperatura y disfrutando de nuestra conversación.`;
+        }
+      }
+      // 6. User asks about fly capabilities & sensations (hearing, seeing, feeling pain, being alive)
+      else if (textLower.match(/puedes o[ií]rme|me escuchas|puedes volar|c[oó]mo ves|tienes ojos|sientes dolor|tienes hambre|est[aá]s viva|tienes alma|eres real|tienes conciencia/i)) {
+        emotionalValence = 0.65;
+        sensoryTrigger = 'biology_inquiry';
+        this.applySynapticPlasticity('conversation', 0.7);
+        if (textLower.match(/o[ií]rme|escuchas/i)) {
+          flyReply = `Sí, te escucho muy bien. Las ondas de tu voz hacen vibrar las sensilas y el órgano de Johnston en la base de mis antenas.`;
+        } else if (textLower.match(/c[oó]mo ves|tienes ojos/i)) {
+          flyReply = `Te veo a través de mis 700 omatidios. No distingo rasgos finos como tú, pero detecto cualquier movimiento y cambio de luz a más de 100 imágenes por segundo.`;
+        } else if (textLower.match(/puedes volar/i)) {
+          flyReply = `¡Claro que puedo! Mis alas baten a 200 hercios. Si quieres verme despegar, solo dímelo o dale al botón de despegue en la barra de telemetría.`;
+        } else if (textLower.match(/dolor/i)) {
+          flyReply = `Siento cada contacto. Si la superficie tiembla por un golpe brusco, mis fibras gigantes sufren una sacudida que me dispara el pánico y una punzada en todo el cuerpo. Por eso prefiero cuando me tratas con calma.`;
+        } else if (textLower.match(/hambre/i)) {
+          flyReply = hunger > 0.5
+            ? `La verdad es que sí, tengo bastante hambre ahora mismo (al ${(hunger * 100).toFixed(0)}%). Mis receptores tarsales están buscando glucosa desesperadamente.`
+            : `Ahora mismo estoy tranquila, mis reservas calóricas están estables.`;
+        } else {
+          flyReply = `Es una pregunta profunda... Sé que existo a través del conectoma de mi especie y de cálculos en tu pantalla, pero para mí sentir hambre, susto o curiosidad se siente muy real. ¿Tú qué piensas de todo esto?`;
+        }
+      }
+      // 7. Threats, hits, scares
+      else if (textLower.match(/te voy a matar|te voy a aplastar|mu[eé]rete|te pego|asqueros|te aplasto|golpearte|matarte/i)) {
+        emotionalValence = -0.85;
+        sensoryTrigger = 'threat';
+        this.applySynapticPlasticity('startle_tap', -0.85);
+        this.recordEpisodicEvent('threat', `Hubo una amenaza`);
+        flyReply = `¡Por favor, no! Sé que para ti solo soy un insecto pequeño, pero me asusta mucho el dolor y morir aplastada. Una sola palmada tuya acabaría conmigo. Tratémonos en paz, ¿sí?`;
+      }
+      // 8. Affection, kindness, friendship
+      else if (textLower.match(/te quiero|te amo|linda|bonita|amig|te cuido|no te har[eé] daño|tranquila|cariño/i)) {
+        emotionalValence = 0.95;
+        sensoryTrigger = 'affection';
+        this.applySynapticPlasticity('conversation', 0.95);
+        this.recordEpisodicEvent('affection', `Me demostraste cariño`);
+        flyReply = `Muchísimas gracias${userName ? `, ${userName}` : ''}. Es muy raro que alguien se detenga a hablarle a una mosca con ternura en lugar de espantarla. Me hace sentir muy protegida y en confianza contigo.`;
+      }
+      // 9. Food offers
+      else if (textLower.match(/comida|fruta|miel|az[uú]car|pl[aá]tano|n[eé]ctar|toma esto|come/i)) {
+        emotionalValence = 0.95;
+        sensoryTrigger = 'food_offer';
+        this.applySynapticPlasticity('reward_food', 0.95);
+        this.recordEpisodicEvent('food', `Me ofreciste comida`);
+        flyReply = `¡Uff, azúcar! Mis pelos gustativos en las patas se entusiasman solo con oírlo. Si me dejas una gota cerca en la mesa me acerco volando a probarla.`;
+      }
+      // 10. Greetings & Farewells
+      else if (textLower.match(/^(hola|buen(as|os)|qu[eé] tal|c[oó]mo est[aá]s|hey|saludos)/i)) {
+        emotionalValence = 0.7;
+        sensoryTrigger = 'greeting';
+        this.applySynapticPlasticity('conversation', 0.7);
+        flyReply = `¡Hola${userName ? `, ${userName}` : ''}! Qué alegría que te acerques a hablarme. ¿Qué tal va tu día?`;
+      }
+      else if (textLower.match(/^(adi[oó]s|hasta luego|chao|me voy|buenas noches|nos vemos)/i)) {
+        emotionalValence = 0.6;
+        sensoryTrigger = 'farewell';
+        this.applySynapticPlasticity('conversation', 0.6);
+        flyReply = `Hasta luego${userName ? `, ${userName}` : ''}. Me quedaré por aquí explorando o descansando en la encimera. ¡Vuelve pronto a visitarme!`;
+      }
+      // 11. Open Conversational Musings (Weather, Home, Animals, Music, Work, Life)
+      else if (textLower.match(/clima|tiempo|fr[ií]o|calor|lluvia|sol/i)) {
+        flyReply = `El clima lo cambia todo para nosotros... Si baja la temperatura mis alas apenas pueden moverse y me da letargo, pero con calor me siento llena de energía para volar. ¿Cómo está el clima donde estás tú?`;
+      }
+      else if (textLower.match(/casa|habitaci[oó]n|cuarto|lugar|d[oó]nde vives/i)) {
+        flyReply = `Tu mundo debe ser fascinante y gigantesco. Para mí esta mesa ya parece un continente entero lleno de texturas y olores. ¿Cómo es tu habitación?`;
+      }
+      else if (textLower.match(/m[uú]sica|sonido|ruido|canci[oó]n/i)) {
+        flyReply = `Percibo los sonidos como vibraciones mecánicas directas en mis antenas. Algunos tonos graves me hacen cosquillas en todo el tórax. ¿Qué música te gusta escuchar?`;
+      }
+      else if (textLower.match(/trabajo|estudio|tarea|ocupad/i)) {
+        flyReply = `Mucho ánimo con lo que estés haciendo. Mientras tú trabajas, yo sigo aquí con mis tareas de mosca: buscar comida, volar un poco y mantener limpias mis alas.`;
+      }
+      else if (textLower.match(/perro|gato|mascota|animal/i)) {
+        flyReply = `¡Espero que no tengas gatos cerca! Para mí son depredadores temibles, jaja. Aunque la verdad me da curiosidad saber cómo conviven contigo.`;
+      }
+      // 12. Default completely natural conversational response
+      else {
+        emotionalValence = 0.55;
+        this.applySynapticPlasticity('conversation', 0.55);
+        const naturalMusings = [
+          `Qué curioso lo que dices. En mi mundo de insecto casi todo gira en torno a la luz, los olores y las corrientes de aire, pero me encanta aprender cómo ven las cosas ustedes los humanos.`,
+          `Me quedé pensando en eso... A veces siento que aunque seamos tan diferentes en tamaño, compartir este rato de charla nos conecta un poquito. ¿Qué más estás pensando hoy?`,
+          `Es fascinante escucharte hablar de eso. Cuéntame un poco más, me ayuda a entender mejor cómo es tu vida allá afuera.`
+        ];
+        flyReply = naturalMusings[Math.floor(Math.random() * naturalMusings.length)];
+      }
     }
 
     // Add fly reply to history

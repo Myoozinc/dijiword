@@ -272,6 +272,9 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
   const speechRecognizerRef = useRef(null);
   const [engramMutationCounter, setEngramMutationCounter] = useState(() => neuroAIConsciousness.engramMutationCount);
   const [consciousnessTab, setConsciousnessTab] = useState('chat'); // 'chat' | 'synaptic_weights' | 'cortical_snn'
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState(() => neuroAIConsciousness.geminiApiKey || '');
+  const [isGeminiConnected, setIsGeminiConnected] = useState(() => !!neuroAIConsciousness.geminiApiKey);
+  const [showGeminiConfig, setShowGeminiConfig] = useState(false);
 
   // Three.js scene refs for Connectome
   const sceneRef = useRef(null);
@@ -1968,10 +1971,12 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
     return () => unsub();
   }, []);
 
-  const handleSendHumanMessage = (e, overrideText = null) => {
+  const handleSendHumanMessage = async (e, overrideText = null) => {
     if (e) e.preventDefault();
     const textToSend = (overrideText || userChatInput).trim();
     if (!textToSend) return;
+    setUserChatInput('');
+    setMicTranscript('');
     const context = {
       hungerDrive: behaviorStateRef.current?.hungerDrive ?? 0.5,
       aversiveDrive: behaviorStateRef.current?.aversiveDrive ?? 0.1,
@@ -1983,9 +1988,7 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
       kitchenBoundaryMode: kitchenBoundaryMode,
       currentProduct: currentProduct,
     };
-    const res = neuroAIConsciousness.processHumanMessage(textToSend, context);
-    setUserChatInput('');
-    setMicTranscript('');
+    const res = await neuroAIConsciousness.processHumanMessage(textToSend, context);
     setEngramMutationCounter(res.mutations);
     setLatestFlyThought(res.reply);
   };
@@ -4348,6 +4351,78 @@ export function FlySimulationViewer({ onBackToRoomScanner, onBackToLobby, scanne
             {/* ── TAB 1: DIÁLOGO CONSCIENTE & STREAM OF THOUGHTS ── */}
             {consciousnessTab === 'chat' && (
               <div className="flex-1 flex flex-col space-y-3 min-h-[340px] overflow-hidden">
+                {/* Google Gemini Real AI Integration Banner */}
+                <div className="p-2.5 rounded-2xl bg-gradient-to-r from-purple-950/70 via-indigo-950/60 to-slate-900 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-purple-400 animate-pulse shrink-0" />
+                    <div>
+                      <span className="font-bold text-white block">
+                        {isGeminiConnected ? '🤖 Conectada a Google Gemini 2.0 Flash (IA Real)' : '🧠 Motor Neuronal Semántico Integrado'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {isGeminiConnected
+                          ? 'Pensamiento y diálogo generativo 100% natural sin frases prefabricadas.'
+                          : 'Respuestas orgánicas sin clichés. Puedes conectar tu clave gratuita de Google Gemini para IA conversacional ilimitada.'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowGeminiConfig(!showGeminiConfig)}
+                    className="px-2.5 py-1 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/50 text-purple-200 text-[10px] font-bold transition self-end sm:self-auto shrink-0"
+                  >
+                    {showGeminiConfig ? 'Cerrar' : isGeminiConnected ? '⚙️ Cambiar Clave' : '🔑 Activar Gemini 2.0 (Gratis)'}
+                  </button>
+                </div>
+
+                {/* Gemini API Key Configuration Drawer */}
+                {showGeminiConfig && (
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-purple-500/40 space-y-2 animate-fadeIn text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-purple-300">Clave de API de Google AI Studio (Gemini):</span>
+                      <a
+                        href="https://aistudio.google.com/app/apikey"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] text-cyan-400 hover:underline flex items-center gap-1 font-mono"
+                      >
+                        <span>Obtener clave gratis en aistudio.google.com ↗</span>
+                      </a>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="password"
+                        value={geminiApiKeyInput}
+                        onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                        placeholder="Pega aquí tu clave AIzaSy..."
+                        className="flex-1 bg-slate-950 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs font-mono outline-none focus:border-purple-400"
+                      />
+                      <button
+                        onClick={() => {
+                          neuroAIConsciousness.setGeminiApiKey(geminiApiKeyInput);
+                          setIsGeminiConnected(!!geminiApiKeyInput.trim());
+                          setShowGeminiConfig(false);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold transition text-xs shrink-0"
+                      >
+                        Guardar
+                      </button>
+                      {isGeminiConnected && (
+                        <button
+                          onClick={() => {
+                            neuroAIConsciousness.setGeminiApiKey('');
+                            setGeminiApiKeyInput('');
+                            setIsGeminiConnected(false);
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 text-xs transition"
+                          title="Desconectar Gemini y volver al motor integrado"
+                        >
+                          Desconectar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Scrollable Conversation Stream */}
                 <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[300px] border border-slate-800/80 rounded-2xl p-3 bg-slate-950/80 font-sans">
                   {neuroAIConsciousness.thoughtHistory.length === 0 ? (
